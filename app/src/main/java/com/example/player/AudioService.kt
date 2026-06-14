@@ -12,7 +12,12 @@ class AudioService : MediaSessionService() {
 
     override fun onCreate() {
         super.onCreate()
-        val player = ExoPlayer.Builder(this).build().apply {
+        val contextWithAttribution = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
+            createAttributionContext("MediaPlayback")
+        } else {
+            this
+        }
+        val player = ExoPlayer.Builder(contextWithAttribution).build().apply {
             setAudioAttributes(
                 AudioAttributes.Builder()
                     .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
@@ -21,7 +26,7 @@ class AudioService : MediaSessionService() {
                 true
             )
         }
-        mediaSession = MediaSession.Builder(this, player).build()
+        mediaSession = MediaSession.Builder(contextWithAttribution, player).build()
     }
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? {

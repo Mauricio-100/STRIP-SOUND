@@ -42,11 +42,39 @@ data class UserResponse(
     val username: String,
     val avatar_url: String? = null,
     val bio: String? = null,
-    val is_verified: Boolean = false
+    val is_verified: Boolean = false,
+    val followers_count: Int = 0,
+    val following_count: Int = 0,
+    val is_following: Boolean = false
+)
+
+@JsonClass(generateAdapter = true)
+data class Comment(
+    val id: String,
+    val user_id: String,
+    val sound_id: String? = null,
+    @com.squareup.moshi.Json(name = "content") val text: String,
+    val created_at: String? = null,
+    val username: String? = null,
+    val user: UserResponse? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class CommentRequest(
+    @com.squareup.moshi.Json(name = "content") val text: String
 )
 
 @JsonClass(generateAdapter = true)
 data class UploadResponse(
     val status: String,
     val sound_id: String
+)
+
+@JsonClass(generateAdapter = true)
+data class StoryResponse(
+    val id: String,
+    val media_url: String,
+    val media_type: String,
+    val created_at: String,
+    val user: UserResponse
 )

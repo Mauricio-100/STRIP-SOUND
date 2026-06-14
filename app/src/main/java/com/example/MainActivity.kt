@@ -18,6 +18,7 @@ import androidx.navigation.compose.rememberNavController
 import com.example.data.local.AppDatabase
 import com.example.data.local.AudioDownloader
 import com.example.data.local.AuthManager
+import com.example.data.local.SearchHistoryManager
 import com.example.data.remote.NetworkModule
 import com.example.domain.model.Sound
 import com.example.player.AudioPlayerManager
@@ -27,7 +28,10 @@ import com.example.ui.screens.PlayerScreen
 import com.example.ui.screens.ProfileScreen
 import com.example.ui.screens.AnalyticsScreen
 import com.example.ui.screens.UploadSoundScreen
+import com.example.ui.screens.StoryViewerScreen
+import com.example.ui.screens.CreateStoryScreen
 import com.example.ui.theme.MyApplicationTheme
+import com.example.domain.model.VideoResponse
 
 class MainActivity : ComponentActivity() {
 
@@ -35,6 +39,7 @@ class MainActivity : ComponentActivity() {
     private lateinit var authManager: AuthManager
     private lateinit var appDatabase: AppDatabase
     private lateinit var audioDownloader: AudioDownloader
+    private lateinit var searchHistoryManager: SearchHistoryManager
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -43,6 +48,7 @@ class MainActivity : ComponentActivity() {
         authManager = AuthManager(this)
         appDatabase = AppDatabase.getDatabase(this)
         audioDownloader = AudioDownloader(this, appDatabase)
+        searchHistoryManager = SearchHistoryManager(this)
 
         NetworkModule.tokenProvider = { authManager.getToken() }
 
@@ -56,6 +62,9 @@ class MainActivity : ComponentActivity() {
                     val isLoggedIn by authManager.isLoggedIn.collectAsState()
                     var currentSound by remember { mutableStateOf<Sound?>(null) }
                     var showPlayer by remember { mutableStateOf(false) }
+                    
+                    var selectedStories by remember { mutableStateOf<List<VideoResponse>>(emptyList()) }
+                    var initialStoryIndex by remember { mutableIntStateOf(0) }
 
                     LaunchedEffect(isLoggedIn) {
                         if (isLoggedIn) {
@@ -94,7 +103,26 @@ class MainActivity : ComponentActivity() {
                                 },
                                 onUploadClick = {
                                     navController.navigate("upload")
-                                }
+                                },
+                                onStoryClick = { stories, index ->
+                                    selectedStories = stories
+                                    initialStoryIndex = index
+                                    navController.navigate("story_view")
+                                },
+                                onCreateStoryClick = {
+                                    navController.navigate("create_story")
+                                },
+                                searchHistoryManager = searchHistoryManager
+                            )
+                        }
+                        composable("create_story") {
+                            CreateStoryScreen(onBack = { navController.popBackStack() })
+                        }
+                        composable("story_view") {
+                            StoryViewerScreen(
+                                stories = selectedStories,
+                                initialIndex = initialStoryIndex,
+                                onClose = { navController.popBackStack() }
                             )
                         }
                         composable("upload") {
@@ -104,6 +132,17 @@ class MainActivity : ComponentActivity() {
                         }
                         composable("profile") {
                             ProfileScreen(
+                                userId = null,
+                                authManager = authManager,
+                                appDatabase = appDatabase,
+                                onBack = { navController.popBackStack() },
+                                onLogout = { },
+                                onAnalyticsClick = { navController.navigate("analytics") }
+                            )
+                        }
+                        composable("profile/{userId}") { backStackEntry ->
+                            ProfileScreen(
+                                userId = backStackEntry.arguments?.getString("userId"),
                                 authManager = authManager,
                                 appDatabase = appDatabase,
                                 onBack = { navController.popBackStack() },
@@ -129,7 +168,11 @@ class MainActivity : ComponentActivity() {
                                 audioPlayerManager = audioPlayerManager,
                                 audioDownloader = audioDownloader,
                                 appDatabase = appDatabase,
-                                onClose = { showPlayer = false }
+                                onClose = { showPlayer = false },
+                                onNavigateToProfile = { userId ->
+                                    showPlayer = false
+                                    navController.navigate("profile/$userId")
+                                }
                             )
                         }
                     }

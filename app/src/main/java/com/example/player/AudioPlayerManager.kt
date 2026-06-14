@@ -28,8 +28,13 @@ class AudioPlayerManager(private val context: Context) {
     val currentTrack: StateFlow<MediaItem?> = _currentTrack.asStateFlow()
 
     init {
-        val sessionToken = SessionToken(context, ComponentName(context, AudioService::class.java))
-        controllerFuture = MediaController.Builder(context, sessionToken).buildAsync()
+        val attributionContext = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
+            context.createAttributionContext("AudioService")
+        } else {
+            context
+        }
+        val sessionToken = SessionToken(attributionContext, ComponentName(attributionContext, AudioService::class.java))
+        controllerFuture = MediaController.Builder(attributionContext, sessionToken).buildAsync()
         controllerFuture?.addListener(
             {
                 player = controllerFuture?.get()
@@ -66,6 +71,10 @@ class AudioPlayerManager(private val context: Context) {
         } else {
             player?.play()
         }
+    }
+    
+    fun seekTo(positionMs: Long) {
+        player?.seekTo(positionMs)
     }
 
     fun release() {

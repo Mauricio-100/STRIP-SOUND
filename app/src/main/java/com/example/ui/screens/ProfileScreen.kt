@@ -27,25 +27,38 @@ import com.example.domain.model.UserResponse
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.first
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
+import android.widget.Toast
+import androidx.compose.ui.platform.LocalContext
+
 import androidx.compose.material.icons.filled.BarChart
+import androidx.compose.material.icons.filled.Share
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ProfileScreen(
+    userId: String? = null,
     authManager: AuthManager,
     appDatabase: AppDatabase,
     onBack: () -> Unit,
     onLogout: () -> Unit,
     onAnalyticsClick: () -> Unit
 ) {
+    val context = LocalContext.current
     var userProfile by remember { mutableStateOf<UserResponse?>(null) }
     var isLoading by remember { mutableStateOf(true) }
     var downloadedCount by remember { mutableStateOf(0) }
     val coroutineScope = rememberCoroutineScope()
 
-    LaunchedEffect(Unit) {
+    LaunchedEffect(userId) {
         try {
-            userProfile = NetworkModule.api.getMyProfile()
+            if (userId != null) {
+                userProfile = NetworkModule.api.getUserProfile(userId)
+            } else {
+                userProfile = NetworkModule.api.getMyProfile()
+            }
             val dlSounds = appDatabase.soundDao().getAllDownloadedSounds().first()
             downloadedCount = dlSounds.size
         } catch (e: Exception) {
@@ -137,6 +150,17 @@ fun ProfileScreen(
                                     Text("Verified Artist", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodySmall)
                                 }
                             }
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Row(modifier = Modifier.fillMaxWidth()) {
+                                Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(end = 16.dp)) {
+                                    Text("${userProfile?.followers_count ?: 0}", color = Color.White, fontWeight = FontWeight.Bold)
+                                    Text("Followers", color = Color.Gray, style = MaterialTheme.typography.bodySmall)
+                                }
+                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                    Text("${userProfile?.following_count ?: 0}", color = Color.White, fontWeight = FontWeight.Bold)
+                                    Text("Following", color = Color.Gray, style = MaterialTheme.typography.bodySmall)
+                                }
+                            }
                         }
                     }
                 }
@@ -164,6 +188,32 @@ fun ProfileScreen(
                             Column(modifier = Modifier.weight(1f)) {
                                 Text("Dashboard Analytique", color = Color.White, fontWeight = FontWeight.SemiBold)
                                 Text("Statistiques Créateur", color = Color.Gray, style = MaterialTheme.typography.bodySmall)
+                            }
+                        }
+                    }
+
+                    Surface(
+                        color = MaterialTheme.colorScheme.surface,
+                        shape = MaterialTheme.shapes.medium,
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                        onClick = {
+                            val username = userProfile?.username ?: "guest"
+                            val link = "https://stripsound.com/creator/$username"
+                            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                            val clip = ClipData.newPlainText("Portfolio Link", link)
+                            clipboard.setPrimaryClip(clip)
+                            Toast.makeText(context, "Lien du portfolio copié !", Toast.LENGTH_SHORT).show()
+                        }
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(16.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(Icons.Default.Share, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                            Spacer(modifier = Modifier.width(16.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text("Partager mon Portfolio", color = Color.White, fontWeight = FontWeight.SemiBold)
+                                Text("Copier le lien public de mes sons", color = Color.Gray, style = MaterialTheme.typography.bodySmall)
                             }
                         }
                     }

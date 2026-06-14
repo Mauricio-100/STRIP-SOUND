@@ -44,6 +44,33 @@ interface StripSoundApi {
         @Query("limit") limit: Int = 20
     ): List<Sound>
 
+    @GET("sounds/{sound_id}/comments")
+    suspend fun getComments(@Path("sound_id") soundId: String): List<com.example.domain.model.Comment>
+
+    @POST("sounds/{sound_id}/comment")
+    suspend fun postComment(
+        @Path("sound_id") soundId: String,
+        @Body request: com.example.domain.model.CommentRequest
+    ): com.example.domain.model.Comment
+
+    @POST("sounds/{sound_id}/like")
+    suspend fun likeSound(@Path("sound_id") soundId: String)
+
+    @POST("sounds/{sound_id}/like")
+    suspend fun unlikeSound(@Path("sound_id") soundId: String)
+
+    @POST("users/{user_id}/follow")
+    suspend fun followUser(@Path("user_id") userId: String)
+
+    @POST("users/{user_id}/follow")
+    suspend fun unfollowUser(@Path("user_id") userId: String)
+
+    @GET("users/{user_id}")
+    suspend fun getUserProfile(@Path("user_id") userId: String): com.example.domain.model.UserResponse
+
+    @GET("stories")
+    suspend fun getActiveStories(): List<com.example.domain.model.StoryResponse>
+
     @GET("search")
     suspend fun search(
         @Query("q") query: String,

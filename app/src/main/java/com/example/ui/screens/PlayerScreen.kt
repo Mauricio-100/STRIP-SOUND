@@ -14,6 +14,7 @@ import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material.icons.filled.Verified
+import androidx.compose.material.icons.filled.Report
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -21,6 +22,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -30,9 +32,27 @@ import com.example.domain.model.Sound
 import com.example.player.AudioPlayerManager
 import androidx.media3.common.Player
 
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.FavoriteBorder
+import androidx.compose.material.icons.filled.Comment
+import androidx.compose.material.icons.filled.Share
+import androidx.compose.foundation.clickable
+import android.content.Intent
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.gestures.detectTapGestures
+
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.filled.Send
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -41,12 +61,32 @@ fun PlayerScreen(
     audioPlayerManager: AudioPlayerManager,
     audioDownloader: com.example.data.local.AudioDownloader,
     appDatabase: com.example.data.local.AppDatabase,
-    onClose: () -> Unit
+    onClose: () -> Unit,
+    onNavigateToProfile: (String) -> Unit
 ) {
     val isPlaying by audioPlayerManager.isPlaying.collectAsState()
     var isDownloaded by remember { mutableStateOf(false) }
     var isDownloading by remember { mutableStateOf(false) }
+    var currentPosition by remember { mutableLongStateOf(0L) }
+    var duration by remember { mutableLongStateOf(0L) }
+    var isLiked by remember { mutableStateOf(false) }
+    var likesCount by remember { mutableIntStateOf(sound.plays_count / 10) }
+    
+    var showComments by remember { mutableStateOf(false) }
+    var commentsList by remember { mutableStateOf<List<com.example.domain.model.Comment>>(emptyList()) }
+    var isCommentsLoading by remember { mutableStateOf(false) }
+    var newCommentText by remember { mutableStateOf("") }
+    
     val coroutineScope = rememberCoroutineScope()
+    val context = LocalContext.current
+    
+    LaunchedEffect(isPlaying) {
+        while (isActive && isPlaying) {
+            currentPosition = audioPlayerManager.player?.currentPosition ?: 0L
+            duration = audioPlayerManager.player?.duration?.coerceAtLeast(0L) ?: 0L
+            delay(1000)
+        }
+    }
     
     LaunchedEffect(sound) {
         isDownloaded = audioDownloader.isDownloaded(sound.id)
@@ -68,19 +108,23 @@ fun PlayerScreen(
         audioPlayerManager.playTrack(url = url, itemMetadata = mediaMetadata)
     }
 
-    Box(
+    LazyColumn(
         modifier = Modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
-            .padding(24.dp)
+            .padding(horizontal = 24.dp)
             .windowInsetsPadding(WindowInsets.statusBars)
     ) {
-        Column(
-            modifier = Modifier.fillMaxSize()
-        ) {
+        item {
+            Column(
+                modifier = Modifier
+                    .fillParentMaxHeight()
+                    .padding(vertical = 24.dp)
+            ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
             ) {
                 IconButton(
                     onClick = {
@@ -110,12 +154,24 @@ fun PlayerScreen(
                         )
                     }
                 }
-
-                IconButton(
-                    onClick = onClose,
-                    modifier = Modifier.background(MaterialTheme.colorScheme.surfaceVariant, CircleShape)
-                ) {
-                    Icon(Icons.Default.Close, contentDescription = "Close", tint = Color.Gray)
+                
+                val context = LocalContext.current
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    IconButton(
+                        onClick = {
+                            val notificationManager = com.example.util.CustomNotificationManager(context)
+                            notificationManager.showReportNotification(sound.username ?: sound.author_username ?: "Unknown")
+                        },
+                        modifier = Modifier.background(MaterialTheme.colorScheme.surfaceVariant, CircleShape)
+                    ) {
+                        Icon(Icons.Default.Report, contentDescription = "Signaler", tint = Color.Gray)
+                    }
+                    IconButton(
+                        onClick = onClose,
+                        modifier = Modifier.background(MaterialTheme.colorScheme.surfaceVariant, CircleShape)
+                    ) {
+                        Icon(Icons.Default.Close, contentDescription = "Close", tint = Color.Gray)
+                    }
                 }
             }
 
@@ -220,17 +276,98 @@ fun PlayerScreen(
                 StatBox(label = "CODEC", value = "FLAC", modifier = Modifier.weight(1f))
             }
 
+            // Social Actions (Facebook style post simulation)
+            Spacer(modifier = Modifier.height(16.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha=0.5f), RoundedCornerShape(12.dp)).padding(horizontal = 16.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clickable { 
+                    val wasLiked = isLiked
+                    isLiked = !isLiked 
+                    if (isLiked) likesCount++ else likesCount--
+                    coroutineScope.launch {
+                        try {
+                            if (isLiked) {
+                                com.example.data.remote.NetworkModule.api.likeSound(sound.id)
+                            } else {
+                                com.example.data.remote.NetworkModule.api.unlikeSound(sound.id)
+                            }
+                        } catch (e: Exception) {
+                            e.printStackTrace()
+                            // Revert on failure
+                            isLiked = wasLiked
+                            if (isLiked) likesCount++ else likesCount--
+                        }
+                    }
+                }) {
+                    Icon(
+                        if (isLiked) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
+                        contentDescription = "Like",
+                        tint = if (isLiked) Color.Red else Color.Gray,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("$likesCount", color = Color.LightGray, fontSize = 12.sp)
+                }
+
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clickable {
+                    showComments = true
+                    isCommentsLoading = true
+                    coroutineScope.launch {
+                        try {
+                            commentsList = com.example.data.remote.NetworkModule.api.getComments(sound.id)
+                        } catch (e: Exception) {
+                            e.printStackTrace()
+                        } finally {
+                            isCommentsLoading = false
+                        }
+                    }
+                }) {
+                    Icon(Icons.Default.Comment, contentDescription = "Comment", tint = Color.Gray, modifier = Modifier.size(20.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("${sound.plays_count / 100}", color = Color.LightGray, fontSize = 12.sp)
+                }
+
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clickable {
+                    val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                        type = "text/plain"
+                        putExtra(Intent.EXTRA_TEXT, "Écoute ${sound.title} par ${sound.username} sur StripSound!")
+                    }
+                    context.startActivity(Intent.createChooser(shareIntent, "Partager via"))
+                }) {
+                    Icon(Icons.Default.Share, contentDescription = "Share", tint = Color.Gray, modifier = Modifier.size(20.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("Partager", color = Color.LightGray, fontSize = 12.sp)
+                }
+            }
+
             Spacer(modifier = Modifier.weight(1f))
             
             // "Visualizer" / progress bar placeholder
+            var rowWidth by remember { mutableFloatStateOf(1f) }
             Row(
-                modifier = Modifier.fillMaxWidth().height(48.dp),
+                modifier = Modifier.fillMaxWidth().height(48.dp)
+                    .onSizeChanged { rowWidth = it.width.toFloat() }
+                    .pointerInput(duration) {
+                        detectTapGestures { offset ->
+                            if (duration > 0 && rowWidth > 0) {
+                                val newPos = (offset.x / rowWidth) * duration
+                                audioPlayerManager.seekTo(newPos.toLong())
+                            }
+                        }
+                    },
                 verticalAlignment = Alignment.Bottom,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                val bars = listOf(0.2f, 0.4f, 0.7f, 0.9f, 0.6f, 1.0f, 0.7f, 0.4f, 0.3f, 0.5f, 0.8f, 0.6f, 0.4f, 0.2f)
-                bars.forEachIndexed { index, heightFract ->
-                    val color = if (index in 2..7) Color(0xFF06B6D4) else Color.DarkGray
+                val totalBars = 30
+                val progressFract = if (duration > 0) currentPosition.toFloat() / duration else 0f
+                val activeBarsEndIndex = (totalBars * progressFract).toInt()
+                
+                for (i in 0 until totalBars) {
+                    val color = if (i <= activeBarsEndIndex) Color(0xFF06B6D4) else Color.DarkGray
+                    val heightFract = 0.2f + (0.8f * Math.random()).toFloat()
                     Box(
                         modifier = Modifier
                             .weight(1f)
@@ -242,9 +379,17 @@ fun PlayerScreen(
                 }
             }
             Spacer(modifier = Modifier.height(8.dp))
+            
+            val currSec = (currentPosition / 1000) % 60
+            val currMin = (currentPosition / 1000) / 60
+            val durSec = (duration / 1000) % 60
+            val durMin = (duration / 1000) / 60
+            val remainingSec = ((duration - currentPosition) / 1000).coerceAtLeast(0) % 60
+            val remainingMin = ((duration - currentPosition) / 1000).coerceAtLeast(0) / 60
+            
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Text("00:00", fontSize = 10.sp, color = Color.Gray)
-                Text("-00:00", fontSize = 10.sp, color = Color.Gray)
+                Text(String.format("%02d:%02d", currMin, currSec), fontSize = 10.sp, color = Color.Gray)
+                Text(String.format("-%02d:%02d", remainingMin, remainingSec), fontSize = 10.sp, color = Color.Gray)
             }
             
             Spacer(modifier = Modifier.weight(1f))
@@ -258,8 +403,8 @@ fun PlayerScreen(
                 IconButton(onClick = { /* TODO */ }) {
                     Icon(Icons.Default.Sync, contentDescription = "Shuffle", tint = Color.Gray)
                 }
-                IconButton(onClick = { /* Previous */ }) {
-                    Icon(Icons.Default.SkipPrevious, contentDescription = "Previous", tint = Color.White, modifier = Modifier.size(32.dp))
+                IconButton(onClick = { audioPlayerManager.seekTo(0) }) {
+                    Icon(Icons.Default.SkipPrevious, contentDescription = "Previous/Restart", tint = Color.White, modifier = Modifier.size(32.dp))
                 }
 
                 FloatingActionButton(
@@ -285,6 +430,86 @@ fun PlayerScreen(
             }
 
             Spacer(modifier = Modifier.height(16.dp))
+            }
+        }
+        
+        item {
+            AuthorMiniProfile(
+                authorId = sound.user_id ?: "",
+                authorUsername = sound.username ?: sound.author_username ?: "Unknown",
+                authorAvatar = sound.avatar_url,
+                onNavigateToProfile = onNavigateToProfile
+            )
+            Spacer(modifier = Modifier.height(32.dp))
+        }
+    }
+
+    if (showComments) {
+        ModalBottomSheet(
+            onDismissRequest = { showComments = false },
+            containerColor = MaterialTheme.colorScheme.surface,
+            modifier = Modifier.fillMaxHeight(0.7f)
+        ) {
+            Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+                Text("Comments", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                Spacer(modifier = Modifier.height(16.dp))
+                if (isCommentsLoading) {
+                    Box(modifier = Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+                        CircularProgressIndicator()
+                    }
+                } else {
+                    LazyColumn(modifier = Modifier.weight(1f)) {
+                        items(commentsList) { c ->
+                            Column(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+                                Text(c.username ?: "User", style = MaterialTheme.typography.labelMedium, color = Color.Gray)
+                                Text(c.text, color = Color.White)
+                                Divider(modifier = Modifier.padding(top = 8.dp), color = Color.Gray.copy(alpha=0.2f))
+                            }
+                        }
+                        if (commentsList.isEmpty()) {
+                            item {
+                                Box(modifier = Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) {
+                                    Text("No comments yet", color = Color.Gray)
+                                }
+                            }
+                        }
+                    }
+                }
+                
+                // Add comment field
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
+                    OutlinedTextField(
+                        value = newCommentText,
+                        onValueChange = { newCommentText = it },
+                        modifier = Modifier.weight(1f),
+                        placeholder = { Text("Write a comment...") },
+                        shape = CircleShape
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    IconButton(
+                        onClick = {
+                            if (newCommentText.isNotBlank()) {
+                                coroutineScope.launch {
+                                    try {
+                                        val c = com.example.data.remote.NetworkModule.api.postComment(
+                                            sound.id,
+                                            com.example.domain.model.CommentRequest(newCommentText)
+                                        )
+                                        commentsList = commentsList + c
+                                        newCommentText = ""
+                                    } catch (e: Exception) {
+                                        e.printStackTrace()
+                                    }
+                                }
+                            }
+                        },
+                        modifier = Modifier.background(MaterialTheme.colorScheme.primary, CircleShape)
+                    ) {
+                        Icon(Icons.Default.Send, contentDescription = "Send", tint = Color.Black)
+                    }
+                }
+                Spacer(modifier = Modifier.height(32.dp))
+            }
         }
     }
 }
@@ -301,6 +526,109 @@ fun StatBox(label: String, value: String, modifier: Modifier = Modifier) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Text(label, fontSize = 9.sp, color = Color.Gray)
             Text(value, fontSize = 12.sp, color = Color.White, fontWeight = FontWeight.Bold)
+        }
+    }
+}
+
+@Composable
+fun AuthorMiniProfile(
+    authorId: String,
+    authorUsername: String,
+    authorAvatar: String?,
+    onNavigateToProfile: (String) -> Unit
+) {
+    var userProfile by remember { mutableStateOf<com.example.domain.model.UserResponse?>(null) }
+    var isLoading by remember { mutableStateOf(true) }
+    var isFollowing by remember { mutableStateOf(false) }
+    val coroutineScope = rememberCoroutineScope()
+
+    LaunchedEffect(authorId) {
+        try {
+            if (authorId.isNotBlank()) {
+                val profile = com.example.data.remote.NetworkModule.api.getUserProfile(authorId)
+                userProfile = profile
+                isFollowing = profile.is_following
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        } finally {
+            isLoading = false
+        }
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(Color(0xFF1A1A1A), RoundedCornerShape(16.dp))
+            .padding(16.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            coil.compose.AsyncImage(
+                model = authorAvatar ?: "https://api.dicebear.com/7.x/avataaars/png?seed=$authorUsername",
+                contentDescription = "Avatar",
+                modifier = Modifier
+                    .size(50.dp)
+                    .background(Color.Gray, CircleShape),
+                contentScale = androidx.compose.ui.layout.ContentScale.Crop
+            )
+            Spacer(modifier = Modifier.width(16.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(authorUsername, color = Color.White, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
+                if (!isLoading && userProfile != null) {
+                    Text("${userProfile!!.followers_count} Followers", color = Color.Gray, style = MaterialTheme.typography.labelMedium)
+                }
+            }
+            if (userProfile?.is_verified == true) {
+                Icon(Icons.Default.Verified, contentDescription = "Verified", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
+                Spacer(modifier = Modifier.width(8.dp))
+            }
+        }
+        
+        if (!isLoading && userProfile != null && !userProfile!!.bio.isNullOrBlank()) {
+            Spacer(modifier = Modifier.height(12.dp))
+            val bioText = userProfile!!.bio!!
+            Text(
+                text = if (bioText.length > 100) "${bioText.take(100)}..." else bioText,
+                color = Color.LightGray,
+                style = MaterialTheme.typography.bodySmall,
+                maxLines = 2
+            )
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            androidx.compose.material3.OutlinedButton(
+                onClick = { onNavigateToProfile(authorId) },
+                shape = CircleShape,
+                modifier = Modifier.weight(1f)
+            ) {
+                Text("Voir plus", color = Color.White)
+            }
+            Spacer(modifier = Modifier.width(16.dp))
+            androidx.compose.material3.Button(
+                onClick = {
+                    isFollowing = !isFollowing
+                    coroutineScope.launch {
+                        try {
+                            if (isFollowing) {
+                                com.example.data.remote.NetworkModule.api.followUser(authorId)
+                            } else {
+                                com.example.data.remote.NetworkModule.api.unfollowUser(authorId)
+                            }
+                        } catch (e: Exception) {
+                            e.printStackTrace()
+                            isFollowing = !isFollowing
+                        }
+                    }
+                },
+                shape = CircleShape,
+                modifier = Modifier.weight(1f),
+                colors = androidx.compose.material3.ButtonDefaults.buttonColors(
+                    containerColor = if (isFollowing) Color.DarkGray else MaterialTheme.colorScheme.primary
+                )
+            ) {
+                Text(if (isFollowing) "Following" else "Follow", color = if (isFollowing) Color.White else Color.Black)
+            }
         }
     }
 }
