@@ -1,0 +1,52 @@
+package com.example.domain.model
+
+import com.squareup.moshi.JsonClass
+
+@JsonClass(generateAdapter = true)
+data class Sound(
+    val id: String,
+    val title: String,
+    val cover_url: String? = null,
+    val category: String,
+    val plays: Int = 0,
+    val plays_count: Int = 0,
+    val user_id: String? = null,
+    val username: String? = null,
+    val author_username: String? = null,
+    val avatar_url: String? = null,
+    val is_verified: Boolean = false,
+    val author_is_verified: Boolean = false,
+    val audio_url: String? = null // if available from recommendation vs details
+)
+
+@JsonClass(generateAdapter = true)
+data class VideoResponse(
+    val id: String,
+    val video_url: String,
+    val thumbnail_url: String,
+    val description: String,
+    val likes: Int = 0,
+    val views: Int = 0,
+    val duration: Float? = null,
+    val created_at: String? = null,
+    val user_id: String,
+    val username: String,
+    val avatar_url: String? = null,
+    val is_verified: Boolean = false,
+    val liked: Boolean = false
+)
+
+@JsonClass(generateAdapter = true)
+data class UserResponse(
+    val id: String,
+    val username: String,
+    val avatar_url: String? = null,
+    val bio: String? = null,
+    val is_verified: Boolean = false
+)
+
+@JsonClass(generateAdapter = true)
+data class UploadResponse(
+    val status: String,
+    val sound_id: String
+)
