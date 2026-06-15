@@ -62,6 +62,7 @@ fun ProfileScreen(
 
     var selectedTab by remember { mutableStateOf(0) }
     var wingsList by remember { mutableStateOf<List<com.example.domain.model.Wing>>(emptyList()) }
+    var userSounds by remember { mutableStateOf<List<com.example.domain.model.Sound>>(emptyList()) }
     var isWingsLoading by remember { mutableStateOf(false) }
 
     val playlists by appDatabase.playlistDao().getAllPlaylists().collectAsState(initial = emptyList())
@@ -75,6 +76,10 @@ fun ProfileScreen(
                 userProfile = NetworkModule.api.getFullUserProfile(userId)
             } else {
                 userProfile = NetworkModule.api.getMyProfile()
+            }
+            val targetId = userId ?: userProfile?.id
+            if (targetId != null) {
+                userSounds = NetworkModule.api.getUserSounds(targetId)
             }
             val dlSounds = appDatabase.soundDao().getAllDownloadedSounds().first()
             downloadedCount = dlSounds.size
@@ -232,9 +237,10 @@ fun ProfileScreen(
             }
 
             item {
-                TabRow(
+                ScrollableTabRow(
                     selectedTabIndex = selectedTab,
-                    containerColor = Color.Transparent
+                    containerColor = Color.Transparent,
+                    edgePadding = 0.dp
                 ) {
                     Tab(
                         selected = selectedTab == 0,
@@ -244,11 +250,21 @@ fun ProfileScreen(
                     Tab(
                         selected = selectedTab == 1,
                         onClick = { selectedTab = 1 },
-                        text = { Text("Playlists", fontWeight = FontWeight.Bold) }
+                        text = { Text("Sons (${userSounds.size})", fontWeight = FontWeight.Bold) }
                     )
                     Tab(
                         selected = selectedTab == 2,
                         onClick = { selectedTab = 2 },
+                        text = { Text("Playlists", fontWeight = FontWeight.Bold) }
+                    )
+                    Tab(
+                        selected = selectedTab == 3,
+                        onClick = { selectedTab = 3 },
+                        text = { Text("Téléchargements ($downloadedCount)", fontWeight = FontWeight.Bold) }
+                    )
+                    Tab(
+                        selected = selectedTab == 4,
+                        onClick = { selectedTab = 4 },
                         text = { Text("Settings", fontWeight = FontWeight.Bold) }
                     )
                 }
@@ -274,6 +290,37 @@ fun ProfileScreen(
                     }
                 }
             } else if (selectedTab == 1) {
+                if (userSounds.isEmpty()) {
+                    item {
+                        Box(Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) {
+                            Text("Aucun son", color = Color.Gray)
+                        }
+                    }
+                } else {
+                    items(userSounds.size) { index ->
+                        val sound = userSounds[index]
+                        Card(
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp).clickable { onSoundClick(sound) },
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                        ) {
+                            Row(modifier = Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                                AsyncImage(
+                                    model = sound.cover_url ?: "https://picsum.photos/200",
+                                    contentDescription = null,
+                                    modifier = Modifier.size(50.dp).clip(RoundedCornerShape(8.dp)),
+                                    contentScale = ContentScale.Crop
+                                )
+                                Spacer(modifier = Modifier.width(12.dp))
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(sound.title ?: "Untitled", color = Color.White, fontWeight = FontWeight.SemiBold)
+                                    Text(sound.category ?: "Music", color = Color.Gray, style = MaterialTheme.typography.bodySmall)
+                                }
+                                Text("${sound.plays_count} plays", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelSmall)
+                            }
+                        }
+                    }
+                }
+            } else if (selectedTab == 2) {
                 item {
                     Row(
                         modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
@@ -400,6 +447,10 @@ fun ProfileScreen(
                         }
                     }
                 }
+            } else if (selectedTab == 3) {
+                item {
+                    DownloadedSoundsList(appDatabase, onSoundClick)
+                }
             } else {
                 item {
                     Text("App Settings", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
@@ -458,6 +509,49 @@ fun ProfileScreen(
         }
     }
 }
+}
+
+@Composable
+fun DownloadedSoundsList(appDatabase: AppDatabase, onSoundClick: (com.example.domain.model.Sound) -> Unit) {
+    val downloadedSounds by appDatabase.soundDao().getAllDownloadedSounds().collectAsState(initial = emptyList())
+    if (downloadedSounds.isEmpty()) {
+        Box(Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) {
+            Text("Aucun son téléchargé", color = Color.Gray)
+        }
+    } else {
+        Column {
+            downloadedSounds.forEach { entity ->
+                Card(
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp).clickable {
+                        onSoundClick(com.example.domain.model.Sound(
+                            id = entity.id,
+                            title = entity.title,
+                            audio_url = entity.localFilePath,
+                            cover_url = null,
+                            category = "Offline",
+                            plays = 0,
+                            plays_count = 0,
+                            likes_count = 0,
+                            author_id = "",
+                            username = "Offline",
+                            author_username = "Offline",
+                            author_is_verified = false
+                        ))
+                    },
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                ) {
+                    Row(modifier = Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.List, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(entity.title, color = Color.White, fontWeight = FontWeight.SemiBold)
+                            Text("Sauvegardé hors-ligne", color = Color.Gray, style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
 @Composable
@@ -607,7 +701,7 @@ fun PlaylistTracksList(
 @Composable
 fun AddToPlaylistDialog(
     sound: com.example.domain.model.Sound,
-    appDatabase: AppDatabase,
+    appDatabase: com.example.data.local.AppDatabase,
     onDismiss: () -> Unit
 ) {
     val playlists by appDatabase.playlistDao().getAllPlaylists().collectAsState(initial = emptyList())

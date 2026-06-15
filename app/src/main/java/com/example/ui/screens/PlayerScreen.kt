@@ -71,7 +71,7 @@ fun PlayerScreen(
     val currentPosition by audioPlayerManager.currentPosition.collectAsState()
     val duration by audioPlayerManager.duration.collectAsState()
     var isLiked by remember { mutableStateOf(false) }
-    var likesCount by remember { mutableIntStateOf(sound.plays_count / 10) }
+    var likesCount by remember { mutableIntStateOf(sound.likes_count) }
     
     var showComments by remember { mutableStateOf(false) }
     var showAddToPlaylistDialog by remember { mutableStateOf(false) }
@@ -240,7 +240,13 @@ fun PlayerScreen(
                 fontWeight = FontWeight.Bold
             )
             Spacer(modifier = Modifier.height(4.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.clickable {
+                    val uid = sound.user_id ?: sound.author_id ?: ""
+                    if (uid.isNotEmpty()) onNavigateToProfile(uid)
+                }.padding(vertical = 4.dp)
+            ) {
                 Text(
                     text = "${sound.username ?: sound.author_username ?: "Unknown"} • ${sound.category}",
                     style = MaterialTheme.typography.bodyMedium,
@@ -284,11 +290,7 @@ fun PlayerScreen(
                     if (isLiked) likesCount++ else likesCount--
                     coroutineScope.launch {
                         try {
-                            if (isLiked) {
-                                com.example.data.remote.NetworkModule.api.likeSound(sound.id)
-                            } else {
-                                com.example.data.remote.NetworkModule.api.unlikeSound(sound.id)
-                            }
+                            com.example.data.remote.NetworkModule.api.likeSound(sound.id)
                         } catch (e: Exception) {
                             e.printStackTrace()
                             // Revert on failure

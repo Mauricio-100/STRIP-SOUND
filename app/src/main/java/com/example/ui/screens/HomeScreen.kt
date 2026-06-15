@@ -62,6 +62,27 @@ fun HomeScreen(
     var searchQuery by remember { mutableStateOf("") }
     var isSearchActive by remember { mutableStateOf(false) }
     val searchHistory by searchHistoryManager.history.collectAsState()
+    
+    var searchResults by remember { mutableStateOf<List<Sound>?>(null) }
+
+    LaunchedEffect(searchQuery, isSearchActive) {
+        if (searchQuery.length >= 2 && !isSearchActive) {
+            try {
+                searchResults = NetworkModule.api.search(searchQuery, "sounds", 20)
+            } catch (e: Exception) {
+                e.printStackTrace()
+                // Default to local filtering on error
+                searchResults = sounds.filter { sound ->
+                    sound.title?.contains(searchQuery, ignoreCase = true) == true ||
+                    sound.category?.contains(searchQuery, ignoreCase = true) == true ||
+                    sound.username?.contains(searchQuery, ignoreCase = true) == true ||
+                    sound.author_username?.contains(searchQuery, ignoreCase = true) == true
+                }
+            }
+        } else {
+            searchResults = null
+        }
+    }
 
     LaunchedEffect(Unit) {
         isLoading = true
@@ -321,16 +342,7 @@ fun HomeScreen(
                     }
                 }
 
-                val filteredSounds = if (searchQuery.isNotEmpty() && !isSearchActive) {
-                    sounds.filter { sound ->
-                        sound.title?.contains(searchQuery, ignoreCase = true) == true ||
-                        sound.category?.contains(searchQuery, ignoreCase = true) == true ||
-                        sound.username?.contains(searchQuery, ignoreCase = true) == true ||
-                        sound.author_username?.contains(searchQuery, ignoreCase = true) == true
-                    }
-                } else {
-                    sounds
-                }
+                val filteredSounds = searchResults ?: sounds
 
                 LazyColumn(
                     modifier = Modifier
@@ -357,7 +369,7 @@ fun HomeScreen(
 @Composable
 fun SoundItem(sound: Sound, onClick: () -> Unit) {
     var isLiked by remember { mutableStateOf(false) }
-    var likesCount by remember { mutableIntStateOf(sound.plays_count / 10) }
+    var likesCount by remember { mutableIntStateOf(sound.likes_count) }
     val context = LocalContext.current
     
     Card(
@@ -465,11 +477,7 @@ fun SoundItem(sound: Sound, onClick: () -> Unit) {
                     if (isLiked) likesCount++ else likesCount--
                     coroutineScope.launch {
                         try {
-                            if (isLiked) {
-                                NetworkModule.api.likeSound(sound.id)
-                            } else {
-                                NetworkModule.api.unlikeSound(sound.id)
-                            }
+                            NetworkModule.api.likeSound(sound.id)
                         } catch (e: Exception) {
                             e.printStackTrace()
                             isLiked = wasLiked

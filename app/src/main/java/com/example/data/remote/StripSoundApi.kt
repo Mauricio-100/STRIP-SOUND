@@ -56,9 +56,6 @@ interface StripSoundApi {
     @POST("sounds/{sound_id}/like")
     suspend fun likeSound(@Path("sound_id") soundId: String)
 
-    @POST("sounds/{sound_id}/like")
-    suspend fun unlikeSound(@Path("sound_id") soundId: String)
-
     @POST("users/{user_id}/follow")
     suspend fun followUser(@Path("user_id") userId: String)
 
@@ -77,6 +74,9 @@ interface StripSoundApi {
         @Query("page") page: Int = 1,
         @Query("limit") limit: Int = 15
     ): com.example.domain.model.UserWingsResponse
+
+    @GET("users/{user_id}/sounds")
+    suspend fun getUserSounds(@Path("user_id") userId: String): List<Sound>
 
     @POST("sounds/{sound_id}/play")
     suspend fun incrementSoundPlay(@Path("sound_id") soundId: String)
