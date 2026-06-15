@@ -58,6 +58,12 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+
+        // Request runtime notification permission on Android 13/14+ to support media notification properly
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+            requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 101)
+        }
+
         audioPlayerManager = AudioPlayerManager(this)
         authManager = AuthManager(this)
         appDatabase = AppDatabase.getDatabase(this)

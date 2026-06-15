@@ -106,3 +106,8 @@ data class StoryResponse(
     val created_at: String,
     val user: UserResponse
 )
+
+@JsonClass(generateAdapter = true)
+data class LikeResponse(
+    val liked: Boolean
+)

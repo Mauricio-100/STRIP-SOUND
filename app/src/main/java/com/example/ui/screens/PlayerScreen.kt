@@ -28,6 +28,10 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.Spring
+import androidx.compose.ui.graphics.graphicsLayer
 import com.example.domain.model.Sound
 import com.example.player.AudioPlayerManager
 import androidx.media3.common.Player
@@ -54,6 +58,7 @@ import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.filled.Send
+import androidx.compose.material.icons.filled.VolumeUp
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -103,328 +108,474 @@ fun PlayerScreen(
         audioPlayerManager.playTrack(url = url, sound = sound, itemMetadata = mediaMetadata)
     }
 
-    LazyColumn(
+    Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
-            .padding(horizontal = 24.dp)
-            .windowInsetsPadding(WindowInsets.statusBars)
+            .background(
+                androidx.compose.ui.graphics.Brush.verticalGradient(
+                    colors = listOf(
+                        Color(0xFF0F1B22),
+                        Color(0xFF080D11),
+                        Color(0xFF020305)
+                    )
+                )
+            )
     ) {
-        item {
-            Column(
-                modifier = Modifier
-                    .fillParentMaxHeight()
-                    .padding(vertical = 24.dp)
-            ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                IconButton(
-                    onClick = {
-                        if (!isDownloaded && !isDownloading) {
-                            isDownloading = true
-                            coroutineScope.launch {
-                                audioDownloader.downloadSound(sound)
-                                isDownloaded = true
-                                isDownloading = false
-                            }
-                        } else if (isDownloaded) {
-                            coroutineScope.launch {
-                                audioDownloader.deleteSound(sound.id)
-                                isDownloaded = false
+        // Cyan-purple ambient background glow
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(350.dp)
+                .background(
+                    androidx.compose.ui.graphics.Brush.radialGradient(
+                        colors = listOf(Color(0x3306B6D4), Color(0x0C7C3AED), Color.Transparent),
+                        radius = 1100f
+                    )
+                )
+        )
+
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 24.dp)
+                .windowInsetsPadding(WindowInsets.statusBars)
+        ) {
+            item {
+                Column(
+                    modifier = Modifier
+                        .fillParentMaxHeight()
+                        .padding(vertical = 16.dp)
+                ) {
+                    // Header Bar
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        IconButton(
+                            onClick = {
+                                if (!isDownloaded && !isDownloading) {
+                                    isDownloading = true
+                                    coroutineScope.launch {
+                                        audioDownloader.downloadSound(sound)
+                                        isDownloaded = true
+                                        isDownloading = false
+                                    }
+                                } else if (isDownloaded) {
+                                    coroutineScope.launch {
+                                        audioDownloader.deleteSound(sound.id)
+                                        isDownloaded = false
+                                    }
+                                }
+                            },
+                            modifier = Modifier
+                                .size(46.dp)
+                                .background(Color(0x14FFFFFF), CircleShape)
+                                .border(1.dp, Color(0x17FFFFFF), CircleShape)
+                        ) {
+                            if (isDownloading) {
+                                CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp, color = Color(0xFF06B6D4))
+                            } else {
+                                Icon(
+                                    imageVector = if (isDownloaded) Icons.Default.Check else Icons.Default.Add,
+                                    contentDescription = "Download",
+                                    tint = if (isDownloaded) Color(0xFF06B6D4) else Color.White.copy(alpha = 0.85f),
+                                    modifier = Modifier.size(20.dp)
+                                )
                             }
                         }
-                    },
-                    modifier = Modifier.background(MaterialTheme.colorScheme.surfaceVariant, CircleShape)
-                ) {
-                    if (isDownloading) {
-                        CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp, color = Color(0xFF06B6D4))
-                    } else {
-                        Icon(
-                            imageVector = if (isDownloaded) Icons.Default.Check else Icons.Default.Add,
-                            contentDescription = "Download",
-                            tint = if (isDownloaded) Color(0xFF06B6D4) else Color.Gray
-                        )
+                        
+                        val context = LocalContext.current
+                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            IconButton(
+                                onClick = {
+                                    val notificationManager = com.example.util.CustomNotificationManager(context)
+                                    notificationManager.showReportNotification(sound.username ?: sound.author_username ?: "Unknown")
+                                },
+                                modifier = Modifier
+                                    .size(46.dp)
+                                    .background(Color(0x14FFFFFF), CircleShape)
+                                    .border(1.dp, Color(0x17FFFFFF), CircleShape)
+                            ) {
+                                Icon(Icons.Default.Report, contentDescription = "Signaler", tint = Color.White.copy(alpha = 0.7f), modifier = Modifier.size(20.dp))
+                            }
+                            IconButton(
+                                onClick = onClose,
+                                modifier = Modifier
+                                    .size(46.dp)
+                                    .background(Color(0x14FFFFFF), CircleShape)
+                                    .border(1.dp, Color(0x17FFFFFF), CircleShape)
+                            ) {
+                                Icon(Icons.Default.Close, contentDescription = "Close", tint = Color.White, modifier = Modifier.size(20.dp))
+                            }
+                        }
                     }
-                }
-                
-                val context = LocalContext.current
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    IconButton(
-                        onClick = {
-                            val notificationManager = com.example.util.CustomNotificationManager(context)
-                            notificationManager.showReportNotification(sound.username ?: sound.author_username ?: "Unknown")
-                        },
-                        modifier = Modifier.background(MaterialTheme.colorScheme.surfaceVariant, CircleShape)
-                    ) {
-                        Icon(Icons.Default.Report, contentDescription = "Signaler", tint = Color.Gray)
-                    }
-                    IconButton(
-                        onClick = onClose,
-                        modifier = Modifier.background(MaterialTheme.colorScheme.surfaceVariant, CircleShape)
-                    ) {
-                        Icon(Icons.Default.Close, contentDescription = "Close", tint = Color.Gray)
-                    }
-                }
-            }
 
-            Spacer(modifier = Modifier.height(16.dp))
+                    Spacer(modifier = Modifier.height(16.dp))
 
-            // Album Art Area
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .aspectRatio(1f)
-                    .clip(RoundedCornerShape(24.dp))
-            ) {
-                if (sound.cover_url != null) {
-                    AsyncImage(
-                        model = sound.cover_url,
-                        contentDescription = "Cover",
-                        modifier = Modifier.fillMaxSize(),
-                        contentScale = ContentScale.Crop
-                    )
-                } else {
+                    // Premium Art Frame with shadow & backdrop glow
                     Box(
                         modifier = Modifier
-                            .fillMaxSize()
-                            .background(MaterialTheme.colorScheme.surface),
+                            .fillMaxWidth()
+                            .aspectRatio(1f)
+                            .padding(8.dp),
                         contentAlignment = Alignment.Center
                     ) {
-                        Icon(
-                            Icons.Default.PlayArrow,
-                            contentDescription = null,
-                            modifier = Modifier.size(80.dp),
-                            tint = Color.DarkGray
-                        )
-                    }
-                }
-                
-                // Hi-Res Audio tag bottom left
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.BottomStart)
-                        .padding(16.dp)
-                        .background(Color(0x99000000), RoundedCornerShape(16.dp))
-                        .border(1.dp, Color(0x1AFFFFFF), RoundedCornerShape(16.dp))
-                        .padding(horizontal = 12.dp, vertical = 6.dp)
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        // Blurred shadow under artwork
                         Box(
                             modifier = Modifier
-                                .size(8.dp)
-                                .clip(CircleShape)
-                                .background(Color(0xFF06B6D4))
+                                .fillMaxSize()
+                                .padding(14.dp)
+                                .clip(RoundedCornerShape(32.dp))
+                                .background(
+                                    androidx.compose.ui.graphics.Brush.linearGradient(
+                                        colors = listOf(Color(0x4006B6D4), Color(0x1A7C3AED))
+                                    )
+                                )
                         )
-                        Spacer(modifier = Modifier.width(8.dp))
+
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .clip(RoundedCornerShape(24.dp))
+                                .border(1.5.dp, Color(0x33FFFFFF), RoundedCornerShape(24.dp))
+                                .background(Color(0xFF101418))
+                        ) {
+                            if (sound.cover_url != null) {
+                                AsyncImage(
+                                    model = sound.cover_url,
+                                    contentDescription = "Cover",
+                                    modifier = Modifier.fillMaxSize(),
+                                    contentScale = ContentScale.Crop
+                                )
+                            } else {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .background(
+                                            androidx.compose.ui.graphics.Brush.verticalGradient(
+                                                listOf(Color(0xFF141D24), Color(0xFF0F151B))
+                                            )
+                                        ),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        Icons.Default.PlayArrow,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(90.dp),
+                                        tint = Color(0xFF06B6D4).copy(alpha = 0.25f)
+                                    )
+                                }
+                            }
+                            
+                            // Glossy Satin overlay on artwork
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .background(
+                                        androidx.compose.ui.graphics.Brush.verticalGradient(
+                                            listOf(Color(0x11FFFFFF), Color.Transparent, Color(0x11000000))
+                                        )
+                                    )
+                            )
+
+                            // Hi-Res Audio tag bottom left
+                            Box(
+                                modifier = Modifier
+                                    .align(Alignment.BottomStart)
+                                    .padding(16.dp)
+                                    .background(Color(0xCC000000), RoundedCornerShape(12.dp))
+                                    .border(1.dp, Color(0x1AFFFFFF), RoundedCornerShape(12.dp))
+                                    .padding(horizontal = 10.dp, vertical = 6.dp)
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(6.dp)
+                                            .clip(CircleShape)
+                                            .background(Color(0xFF00FFCC))
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        "HI-RES STUDIO 24-BIT",
+                                        color = Color(0xFF00FFCC),
+                                        fontSize = 9.sp,
+                                        fontWeight = FontWeight.ExtraBold,
+                                        letterSpacing = 1.sp
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(20.dp))
+
+                    // Title with modern Display style and Verified Indicator
+                    Text(
+                        text = sound.title,
+                        style = MaterialTheme.typography.titleLarge.copy(
+                            fontWeight = FontWeight.Black,
+                            fontSize = 24.sp,
+                            letterSpacing = (-0.5).sp
+                        ),
+                        color = Color.White
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .clickable {
+                                val uid = sound.user_id ?: sound.author_id ?: ""
+                                if (uid.isNotEmpty()) onNavigateToProfile(uid)
+                            }
+                            .padding(vertical = 4.dp)
+                    ) {
                         Text(
-                            "HI-RES 24-BIT / 192KHZ",
-                            color = Color(0xFF06B6D4),
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Bold,
-                            letterSpacing = 1.sp
+                            text = "${sound.username ?: sound.author_username ?: "Unknown Artist"} • ${sound.category}",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = Color.LightGray.copy(alpha = 0.7f),
+                            fontWeight = FontWeight.Medium
+                        )
+                        if (sound.is_verified || sound.author_is_verified) {
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Icon(
+                                imageVector = Icons.Default.Verified,
+                                contentDescription = "Verified",
+                                tint = Color(0xFF06B6D4),
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(18.dp))
+
+                    // Premium Cyber Stats grid
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        StatBox(label = "BPM", value = "128", modifier = Modifier.weight(1f))
+                        StatBox(label = "KEY", value = "G#m", modifier = Modifier.weight(1f))
+                        StatBox(label = "BASS", value = "High", modifier = Modifier.weight(1f))
+                        StatBox(label = "FORMAT", value = "FLAC", modifier = Modifier.weight(1f))
+                    }
+
+                    // Satin Glassy Social Action Sheet
+                    Spacer(modifier = Modifier.height(14.dp))
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(Color(0x0CFFFFFF), RoundedCornerShape(16.dp))
+                            .border(1.dp, Color(0x0FFFFFFF), RoundedCornerShape(16.dp))
+                            .padding(horizontal = 14.dp, vertical = 10.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        val likeScale by animateFloatAsState(
+                            targetValue = if (isLiked) 1.3f else 1.0f,
+                            animationSpec = spring(dampingRatio = Spring.DampingRatioHighBouncy, stiffness = Spring.StiffnessMedium),
+                            label = "likeScale"
+                        )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .clickable {
+                                    val wasLiked = isLiked
+                                    isLiked = !isLiked 
+                                    if (isLiked) likesCount++ else likesCount--
+                                    coroutineScope.launch {
+                                        try {
+                                            com.example.data.remote.NetworkModule.api.likeSound(sound.id)
+                                        } catch (e: Exception) {
+                                            e.printStackTrace()
+                                            isLiked = wasLiked
+                                            if (isLiked) likesCount++ else likesCount--
+                                        }
+                                    }
+                                }
+                                .padding(4.dp)
+                        ) {
+                            Icon(
+                                imageVector = if (isLiked) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
+                                contentDescription = "Like",
+                                tint = if (isLiked) Color(0xFFEF4444) else Color.White.copy(alpha = 0.6f),
+                                modifier = Modifier
+                                    .size(20.dp)
+                                    .graphicsLayer(scaleX = likeScale, scaleY = likeScale)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("$likesCount", color = Color.White.copy(alpha = 0.85f), fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        }
+
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .clickable {
+                                    showComments = true
+                                    isCommentsLoading = true
+                                    coroutineScope.launch {
+                                        try {
+                                            commentsList = com.example.data.remote.NetworkModule.api.getComments(sound.id)
+                                        } catch (e: Exception) {
+                                            e.printStackTrace()
+                                        } finally {
+                                            isCommentsLoading = false
+                                        }
+                                    }
+                                }
+                                .padding(4.dp)
+                        ) {
+                            Icon(Icons.Default.Comment, contentDescription = "Comment", tint = Color.White.copy(alpha = 0.6f), modifier = Modifier.size(20.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("${sound.plays_count / 100}", color = Color.White.copy(alpha = 0.85f), fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        }
+
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .clickable {
+                                    val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                                        type = "text/plain"
+                                        putExtra(Intent.EXTRA_TEXT, "Écoute ${sound.title} par ${sound.username} sur StripSound!")
+                                    }
+                                    context.startActivity(Intent.createChooser(shareIntent, "Partager via"))
+                                }
+                                .padding(4.dp)
+                        ) {
+                            Icon(Icons.Default.Share, contentDescription = "Share", tint = Color.White.copy(alpha = 0.6f), modifier = Modifier.size(20.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Partager", color = Color.White.copy(alpha = 0.85f), fontSize = 12.sp)
+                        }
+
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .clickable {
+                                    showAddToPlaylistDialog = true
+                                }
+                                .padding(4.dp)
+                        ) {
+                            Icon(Icons.Default.List, contentDescription = "Playlist", tint = Color.White.copy(alpha = 0.6f), modifier = Modifier.size(20.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Playlist", color = Color.White.copy(alpha = 0.85f), fontSize = 12.sp)
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.weight(1f))
+                    
+                    // High-fidelity active waveform seek bar
+                    WaveformVisualizer(
+                        soundId = sound.id,
+                        currentPosition = currentPosition,
+                        duration = duration,
+                        onSeek = { audioPlayerManager.seekTo(it) },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(56.dp)
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    
+                    val currSec = (currentPosition / 1000) % 60
+                    val currMin = (currentPosition / 1000) / 60
+                    val durSec = (duration / 1000) % 60
+                    val durMin = (duration / 1000) / 60
+                    val remainingSec = ((duration - currentPosition) / 1000).coerceAtLeast(0) % 60
+                    val remainingMin = ((duration - currentPosition) / 1000).coerceAtLeast(0) / 60
+                    
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 2.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(String.format("%02d:%02d", currMin, currSec), fontSize = 11.sp, color = Color.White.copy(alpha = 0.5f), fontWeight = FontWeight.Bold)
+                        Text(String.format("-%02d:%02d", remainingMin, remainingSec), fontSize = 11.sp, color = Color.White.copy(alpha = 0.5f), fontWeight = FontWeight.Bold)
+                    }
+                    
+                    Spacer(modifier = Modifier.weight(1f))
+
+                    // Player circular interactive control deck
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceEvenly,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        IconButton(onClick = { /* Shuffle logic placeholder */ }) {
+                            Icon(Icons.Default.Sync, contentDescription = "Shuffle", tint = Color.White.copy(alpha = 0.4f), modifier = Modifier.size(22.dp))
+                        }
+                        IconButton(onClick = { audioPlayerManager.seekTo(0) }) {
+                            Icon(Icons.Default.SkipPrevious, contentDescription = "Previous/Restart", tint = Color.White, modifier = Modifier.size(34.dp))
+                        }
+
+                        // Radiant Outer neon play ring
+                        Box(
+                            contentAlignment = Alignment.Center,
+                            modifier = Modifier.size(80.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .border(2.dp, Color(0x3B06B6D4), CircleShape)
+                                    .background(Color(0x0D06B6D4), CircleShape)
+                                    .padding(4.dp)
+                            )
+                            FloatingActionButton(
+                                onClick = { audioPlayerManager.togglePlayPause() },
+                                shape = CircleShape,
+                                containerColor = Color(0xFF06B6D4),
+                                elevation = FloatingActionButtonDefaults.elevation(0.dp, 0.dp),
+                                modifier = Modifier.fillMaxSize()
+                            ) {
+                                Icon(
+                                    imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                                    contentDescription = if (isPlaying) "Pause" else "Play",
+                                    tint = Color.Black,
+                                    modifier = Modifier.size(36.dp)
+                                )
+                            }
+                        }
+
+                        IconButton(onClick = { /* Next audio queue placeholder */ }) {
+                            Icon(Icons.Default.SkipNext, contentDescription = "Next", tint = Color.White, modifier = Modifier.size(34.dp))
+                        }
+                        IconButton(onClick = { /* Repeat queue placeholder */ }) {
+                            Icon(Icons.Default.Sync, contentDescription = "Repeat", tint = Color.White.copy(alpha = 0.4f), modifier = Modifier.size(22.dp))
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(20.dp))
+
+                    // Volume Control
+                    val volume by audioPlayerManager.volume.collectAsState()
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(androidx.compose.material.icons.Icons.Default.VolumeUp, contentDescription = "Volume", tint = Color.White.copy(alpha = 0.5f), modifier = Modifier.size(20.dp))
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Slider(
+                            value = volume,
+                            onValueChange = { audioPlayerManager.setVolume(it) },
+                            modifier = Modifier.weight(1f),
+                            colors = SliderDefaults.colors(
+                                thumbColor = Color.White,
+                                activeTrackColor = Color(0xFF06B6D4),
+                                inactiveTrackColor = Color.White.copy(alpha = 0.15f)
+                            )
                         )
                     }
+
+                    Spacer(modifier = Modifier.height(16.dp))
                 }
             }
-
-            Spacer(modifier = Modifier.height(24.dp))
-
-            // Title and Subtitle
-            Text(
-                text = sound.title,
-                style = MaterialTheme.typography.titleLarge,
-                color = Color.White,
-                fontWeight = FontWeight.Bold
-            )
-            Spacer(modifier = Modifier.height(4.dp))
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.clickable {
-                    val uid = sound.user_id ?: sound.author_id ?: ""
-                    if (uid.isNotEmpty()) onNavigateToProfile(uid)
-                }.padding(vertical = 4.dp)
-            ) {
-                Text(
-                    text = "${sound.username ?: sound.author_username ?: "Unknown"} • ${sound.category}",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = Color.Gray,
-                    fontWeight = FontWeight.Medium
+            
+            item {
+                AuthorMiniProfile(
+                    authorId = sound.user_id ?: "",
+                    authorUsername = sound.username ?: sound.author_username ?: "Unknown",
+                    authorAvatar = sound.avatar_url,
+                    onNavigateToProfile = onNavigateToProfile
                 )
-                if (sound.is_verified || sound.author_is_verified) {
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Icon(
-                        imageVector = Icons.Default.Verified,
-                        contentDescription = "Verified",
-                        tint = Color(0xFF06B6D4), // Cyan 500
-                        modifier = Modifier.size(16.dp)
-                    )
-                }
+                Spacer(modifier = Modifier.height(32.dp))
             }
-
-            Spacer(modifier = Modifier.height(24.dp))
-
-            // Stats grid
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                StatBox(label = "BPM", value = "128", modifier = Modifier.weight(1f))
-                StatBox(label = "KEY", value = "G#m", modifier = Modifier.weight(1f))
-                StatBox(label = "ENERGY", value = "84%", modifier = Modifier.weight(1f))
-                StatBox(label = "CODEC", value = "FLAC", modifier = Modifier.weight(1f))
-            }
-
-            // Social Actions (Facebook style post simulation)
-            Spacer(modifier = Modifier.height(16.dp))
-            Row(
-                modifier = Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha=0.5f), RoundedCornerShape(12.dp)).padding(horizontal = 16.dp, vertical = 8.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clickable { 
-                    val wasLiked = isLiked
-                    isLiked = !isLiked 
-                    if (isLiked) likesCount++ else likesCount--
-                    coroutineScope.launch {
-                        try {
-                            com.example.data.remote.NetworkModule.api.likeSound(sound.id)
-                        } catch (e: Exception) {
-                            e.printStackTrace()
-                            // Revert on failure
-                            isLiked = wasLiked
-                            if (isLiked) likesCount++ else likesCount--
-                        }
-                    }
-                }) {
-                    Icon(
-                        if (isLiked) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
-                        contentDescription = "Like",
-                        tint = if (isLiked) Color.Red else Color.Gray,
-                        modifier = Modifier.size(20.dp)
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text("$likesCount", color = Color.LightGray, fontSize = 12.sp)
-                }
-
-                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clickable {
-                    showComments = true
-                    isCommentsLoading = true
-                    coroutineScope.launch {
-                        try {
-                            commentsList = com.example.data.remote.NetworkModule.api.getComments(sound.id)
-                        } catch (e: Exception) {
-                            e.printStackTrace()
-                        } finally {
-                            isCommentsLoading = false
-                        }
-                    }
-                }) {
-                    Icon(Icons.Default.Comment, contentDescription = "Comment", tint = Color.Gray, modifier = Modifier.size(20.dp))
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text("${sound.plays_count / 100}", color = Color.LightGray, fontSize = 12.sp)
-                }
-
-                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clickable {
-                    val shareIntent = Intent(Intent.ACTION_SEND).apply {
-                        type = "text/plain"
-                        putExtra(Intent.EXTRA_TEXT, "Écoute ${sound.title} par ${sound.username} sur StripSound!")
-                    }
-                    context.startActivity(Intent.createChooser(shareIntent, "Partager via"))
-                }) {
-                    Icon(Icons.Default.Share, contentDescription = "Share", tint = Color.Gray, modifier = Modifier.size(20.dp))
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text("Partager", color = Color.LightGray, fontSize = 12.sp)
-                }
-
-                Spacer(modifier = Modifier.width(16.dp))
-
-                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clickable {
-                    showAddToPlaylistDialog = true
-                }) {
-                    Icon(Icons.Default.List, contentDescription = "Playlist", tint = Color.Gray, modifier = Modifier.size(20.dp))
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text("Playlist", color = Color.LightGray, fontSize = 12.sp)
-                }
-            }
-
-            Spacer(modifier = Modifier.weight(1f))
-            
-            // "Visualizer" / progress bar with deterministic high-res waveform
-            WaveformVisualizer(
-                soundId = sound.id,
-                currentPosition = currentPosition,
-                duration = duration,
-                onSeek = { audioPlayerManager.seekTo(it) },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(56.dp)
-            )
-            Spacer(modifier = Modifier.height(8.dp))
-            
-            val currSec = (currentPosition / 1000) % 60
-            val currMin = (currentPosition / 1000) / 60
-            val durSec = (duration / 1000) % 60
-            val durMin = (duration / 1000) / 60
-            val remainingSec = ((duration - currentPosition) / 1000).coerceAtLeast(0) % 60
-            val remainingMin = ((duration - currentPosition) / 1000).coerceAtLeast(0) / 60
-            
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Text(String.format("%02d:%02d", currMin, currSec), fontSize = 10.sp, color = Color.Gray)
-                Text(String.format("-%02d:%02d", remainingMin, remainingSec), fontSize = 10.sp, color = Color.Gray)
-            }
-            
-            Spacer(modifier = Modifier.weight(1f))
-
-            // Player controls
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceEvenly,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                IconButton(onClick = { /* TODO */ }) {
-                    Icon(Icons.Default.Sync, contentDescription = "Shuffle", tint = Color.Gray)
-                }
-                IconButton(onClick = { audioPlayerManager.seekTo(0) }) {
-                    Icon(Icons.Default.SkipPrevious, contentDescription = "Previous/Restart", tint = Color.White, modifier = Modifier.size(32.dp))
-                }
-
-                FloatingActionButton(
-                    onClick = { audioPlayerManager.togglePlayPause() },
-                    shape = CircleShape,
-                    containerColor = Color.White,
-                    modifier = Modifier.size(80.dp)
-                ) {
-                    Icon(
-                        if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                        contentDescription = if (isPlaying) "Pause" else "Play",
-                        tint = Color.Black,
-                        modifier = Modifier.size(40.dp)
-                    )
-                }
-
-                IconButton(onClick = { /* Next */ }) {
-                    Icon(Icons.Default.SkipNext, contentDescription = "Next", tint = Color.White, modifier = Modifier.size(32.dp))
-                }
-                IconButton(onClick = { /* TODO */ }) {
-                    Icon(Icons.Default.Sync, contentDescription = "Repeat", tint = Color.Gray)
-                }
-            }
-
-            Spacer(modifier = Modifier.height(16.dp))
-            }
-        }
-        
-        item {
-            AuthorMiniProfile(
-                authorId = sound.user_id ?: "",
-                authorUsername = sound.username ?: sound.author_username ?: "Unknown",
-                authorAvatar = sound.avatar_url,
-                onNavigateToProfile = onNavigateToProfile
-            )
-            Spacer(modifier = Modifier.height(32.dp))
         }
     }
 
@@ -510,14 +661,26 @@ fun PlayerScreen(
 fun StatBox(label: String, value: String, modifier: Modifier = Modifier) {
     Box(
         modifier = modifier
-            .background(Color(0xFF141414), RoundedCornerShape(12.dp))
-            .border(1.dp, Color(0x0DFFFFFF), RoundedCornerShape(12.dp))
-            .padding(8.dp),
+            .background(Color(0x0CFFFFFF), RoundedCornerShape(16.dp))
+            .border(1.dp, Color(0x0FFFFFFF), RoundedCornerShape(16.dp))
+            .padding(vertical = 10.dp, horizontal = 4.dp),
         contentAlignment = Alignment.Center
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(label, fontSize = 9.sp, color = Color.Gray)
-            Text(value, fontSize = 12.sp, color = Color.White, fontWeight = FontWeight.Bold)
+            Text(
+                text = label, 
+                fontSize = 9.sp, 
+                color = Color(0xFF06B6D4), 
+                fontWeight = FontWeight.ExtraBold,
+                letterSpacing = 1.sp
+            )
+            Spacer(modifier = Modifier.height(2.dp))
+            Text(
+                text = value, 
+                fontSize = 13.sp, 
+                color = Color.White, 
+                fontWeight = FontWeight.Black
+            )
         }
     }
 }
@@ -551,7 +714,8 @@ fun AuthorMiniProfile(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .background(Color(0xFF1A1A1A), RoundedCornerShape(16.dp))
+            .background(Color(0x0CFFFFFF), RoundedCornerShape(20.dp))
+            .border(1.dp, Color(0x0FFFFFFF), RoundedCornerShape(20.dp))
             .padding(16.dp)
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -559,19 +723,36 @@ fun AuthorMiniProfile(
                 model = authorAvatar ?: "https://api.dicebear.com/7.x/avataaars/png?seed=$authorUsername",
                 contentDescription = "Avatar",
                 modifier = Modifier
-                    .size(50.dp)
-                    .background(Color.Gray, CircleShape),
+                    .size(54.dp)
+                    .clip(CircleShape)
+                    .background(Color(0x16FFFFFF), CircleShape)
+                    .border(1.5.dp, Color(0x1AFFFFFF), CircleShape),
                 contentScale = androidx.compose.ui.layout.ContentScale.Crop
             )
             Spacer(modifier = Modifier.width(16.dp))
             Column(modifier = Modifier.weight(1f)) {
-                Text(authorUsername, color = Color.White, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
+                Text(
+                    text = authorUsername, 
+                    color = Color.White, 
+                    fontWeight = FontWeight.Black, 
+                    style = MaterialTheme.typography.titleMedium
+                )
                 if (!isLoading && userProfile != null) {
-                    Text("${userProfile!!.followers_count} Followers", color = Color.Gray, style = MaterialTheme.typography.labelMedium)
+                    Text(
+                        text = "${userProfile!!.followers_count} abonnés", 
+                        color = Color.LightGray.copy(alpha = 0.6f), 
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Bold
+                    )
                 }
             }
             if (userProfile?.is_verified == true) {
-                Icon(Icons.Default.Verified, contentDescription = "Verified", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
+                Icon(
+                    imageVector = Icons.Default.Verified, 
+                    contentDescription = "Verified", 
+                    tint = Color(0xFF06B6D4), 
+                    modifier = Modifier.size(22.dp)
+                )
                 Spacer(modifier = Modifier.width(8.dp))
             }
         }
@@ -581,20 +762,25 @@ fun AuthorMiniProfile(
             val bioText = userProfile!!.bio!!
             Text(
                 text = if (bioText.length > 100) "${bioText.take(100)}..." else bioText,
-                color = Color.LightGray,
+                color = Color.LightGray.copy(alpha = 0.8f),
                 style = MaterialTheme.typography.bodySmall,
                 maxLines = 2
             )
         }
 
         Spacer(modifier = Modifier.height(16.dp))
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+        Row(
+            modifier = Modifier.fillMaxWidth(), 
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
             androidx.compose.material3.OutlinedButton(
                 onClick = { onNavigateToProfile(authorId) },
                 shape = CircleShape,
+                border = BorderStroke(1.dp, Color.White.copy(alpha = 0.35f)),
                 modifier = Modifier.weight(1f)
             ) {
-                Text("Voir plus", color = Color.White)
+                Text("Voir plus", color = Color.White, fontWeight = FontWeight.Bold)
             }
             Spacer(modifier = Modifier.width(16.dp))
             androidx.compose.material3.Button(
@@ -616,10 +802,14 @@ fun AuthorMiniProfile(
                 shape = CircleShape,
                 modifier = Modifier.weight(1f),
                 colors = androidx.compose.material3.ButtonDefaults.buttonColors(
-                    containerColor = if (isFollowing) Color.DarkGray else MaterialTheme.colorScheme.primary
+                    containerColor = if (isFollowing) Color.White.copy(alpha = 0.2f) else Color(0xFF06B6D4),
+                    contentColor = if (isFollowing) Color.White else Color.Black
                 )
             ) {
-                Text(if (isFollowing) "Following" else "Follow", color = if (isFollowing) Color.White else Color.Black)
+                Text(
+                    text = if (isFollowing) "Abonné" else "S'abonner", 
+                    fontWeight = FontWeight.ExtraBold
+                )
             }
         }
     }
@@ -669,14 +859,19 @@ fun WaveformVisualizer(
                 val left = i * (barWidth + barSpacing)
                 val top = (canvasHeight - baseHeight) / 2f
                 val barSize = androidx.compose.ui.geometry.Size(barWidth, baseHeight)
-                val color = if (i <= activeBarsCount) {
-                    Color(0xFF06B6D4) // Lucid Cyan for played portion
+                
+                val brush = if (i <= activeBarsCount) {
+                    androidx.compose.ui.graphics.Brush.verticalGradient(
+                        colors = listOf(Color(0xFF00FFCC), Color(0xFF00D2FF))
+                    )
                 } else {
-                    Color.Gray.copy(alpha = 0.35f) // Warm dark gray for unplayed portion
+                    androidx.compose.ui.graphics.Brush.verticalGradient(
+                        colors = listOf(Color(0x26FFFFFF), Color(0x13FFFFFF))
+                    )
                 }
                 
                 drawRoundRect(
-                    color = color,
+                    brush = brush,
                     topLeft = androidx.compose.ui.geometry.Offset(left, top),
                     size = barSize,
                     cornerRadius = androidx.compose.ui.geometry.CornerRadius(barWidth / 2f, barWidth / 2f)

@@ -84,6 +84,9 @@ interface StripSoundApi {
     @POST("videos/{video_id}/view")
     suspend fun incrementVideoView(@Path("video_id") videoId: String)
 
+    @POST("videos/{video_id}/like")
+    suspend fun likeVideo(@Path("video_id") videoId: String): com.example.domain.model.LikeResponse
+
     @GET("stories")
     suspend fun getActiveStories(): List<com.example.domain.model.StoryResponse>
 

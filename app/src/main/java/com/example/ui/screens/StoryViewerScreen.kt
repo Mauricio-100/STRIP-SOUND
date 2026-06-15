@@ -3,6 +3,10 @@ package com.example.ui.screens
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.Spring
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -11,6 +15,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.Comment
 import androidx.compose.material.icons.filled.Visibility
@@ -49,16 +54,30 @@ fun StoryViewerScreen(
     var isPaused by remember { mutableStateOf(false) }
     val coroutineScope = rememberCoroutineScope()
     
-    // Fake states for interactions
+    // Fake states for interactions (now connected to real server stats where available)
     var isLiked by remember { mutableStateOf(false) }
-    var viewCount by remember { mutableIntStateOf((100..5000).random()) }
+    var likesCount by remember { mutableIntStateOf(0) }
+    var viewCount by remember { mutableIntStateOf(0) }
     var hasViewed by remember { mutableStateOf(false) }
+    var showDoubleTapLikeAnim by remember { mutableStateOf(false) }
+
+    val currentStory = stories.getOrNull(currentIndex) ?: return
 
     LaunchedEffect(currentIndex) {
-        // Reset interaction states per story
-        isLiked = false
+        // Reset interaction states per story using current values
+        isLiked = currentStory.liked
+        likesCount = currentStory.likes
+        viewCount = currentStory.views
         hasViewed = false
-        viewCount = (100..5000).random()
+        
+        // Notify the server about the view increment and track it
+        coroutineScope.launch {
+            try {
+                com.example.data.remote.NetworkModule.api.incrementVideoView(currentStory.id)
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
         
         // "Views augment une seule fois sur vues"
         delay(1000)
@@ -67,8 +86,6 @@ fun StoryViewerScreen(
             hasViewed = true
         }
     }
-
-    val currentStory = stories.getOrNull(currentIndex) ?: return
 
     LaunchedEffect(currentStory.id) {
         com.example.util.UniqueViewsTracker.trackVideoView(context, currentStory.id)
@@ -104,7 +121,19 @@ fun StoryViewerScreen(
     }
 
     fun toggleLike() {
+        val wasLiked = isLiked
         isLiked = !isLiked
+        if (isLiked) likesCount++ else likesCount--
+        coroutineScope.launch {
+            try {
+                com.example.data.remote.NetworkModule.api.likeVideo(currentStory.id)
+            } catch (e: Exception) {
+                e.printStackTrace()
+                // Revert on failure
+                isLiked = wasLiked
+                if (isLiked) likesCount++ else likesCount--
+            }
+        }
     }
 
     Box(
@@ -118,6 +147,12 @@ fun StoryViewerScreen(
                             goToPrev()
                         } else {
                             goToNext()
+                        }
+                    },
+                    onDoubleTap = {
+                        showDoubleTapLikeAnim = true
+                        if (!isLiked) {
+                            toggleLike()
                         }
                     },
                     onPress = {
@@ -290,12 +325,25 @@ fun StoryViewerScreen(
                 }
 
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                    IconButton(onClick = { toggleLike() }) {
+                    val likeScale by animateFloatAsState(
+                        targetValue = if (isLiked) 1.3f else 1.0f,
+                        animationSpec = spring(dampingRatio = Spring.DampingRatioHighBouncy, stiffness = Spring.StiffnessMedium),
+                        label = "likeScale"
+                    )
+                    Row(
+                        modifier = Modifier.clickable { toggleLike() },
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
                         Icon(
-                            Icons.Default.FavoriteBorder, 
+                            imageVector = if (isLiked) Icons.Default.Favorite else Icons.Default.FavoriteBorder, 
                             contentDescription = "Like", 
-                            tint = if (isLiked) Color.Red else Color.White
+                            tint = if (isLiked) Color.Red else Color.White,
+                            modifier = Modifier
+                                .size(24.dp)
+                                .graphicsLayer(scaleX = likeScale, scaleY = likeScale)
                         )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(likesCount.toString(), color = Color.White, style = MaterialTheme.typography.bodyMedium)
                     }
                     IconButton(onClick = { /* open comments */ }) {
                         Icon(Icons.Default.Comment, contentDescription = "Comment", tint = Color.White)
@@ -307,6 +355,36 @@ fun StoryViewerScreen(
                         Icon(Icons.Default.Report, contentDescription = "Signaler", tint = Color.White)
                     }
                 }
+            }
+        }
+
+        // Overlay element for double tap big heart pop reaction
+        if (showDoubleTapLikeAnim) {
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center
+            ) {
+                var heartTriggeredScale by remember { mutableStateOf(0.1f) }
+                LaunchedEffect(Unit) {
+                    heartTriggeredScale = 1.0f
+                }
+                val bigHeartScale by animateFloatAsState(
+                    targetValue = heartTriggeredScale,
+                    animationSpec = spring(dampingRatio = Spring.DampingRatioHighBouncy, stiffness = Spring.StiffnessLow),
+                    label = "bigHeartScale"
+                )
+                Icon(
+                    imageVector = Icons.Default.Favorite,
+                    contentDescription = null,
+                    tint = Color.Red.copy(alpha = 0.85f),
+                    modifier = Modifier
+                        .size(130.dp)
+                        .graphicsLayer(
+                            scaleX = bigHeartScale * 1.5f,
+                            scaleY = bigHeartScale * 1.5f,
+                            alpha = (1.5f - bigHeartScale).coerceIn(0.1f, 1.0f)
+                        )
+                )
             }
         }
     }

@@ -213,10 +213,6 @@ fun ProfileScreen(
                             horizontalArrangement = Arrangement.SpaceAround
                         ) {
                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                Text("${userProfile?.total_wings ?: 0}", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
-                                Text("Wings", color = Color.Gray, style = MaterialTheme.typography.labelSmall)
-                            }
-                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                 Text("${userProfile?.total_sounds ?: 0}", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
                                 Text("Sounds", color = Color.Gray, style = MaterialTheme.typography.labelSmall)
                             }
@@ -245,51 +241,27 @@ fun ProfileScreen(
                     Tab(
                         selected = selectedTab == 0,
                         onClick = { selectedTab = 0 },
-                        text = { Text("Wings (${wingsList.size})", fontWeight = FontWeight.Bold) }
+                        text = { Text("Sons (${userSounds.size})", fontWeight = FontWeight.Bold) }
                     )
                     Tab(
                         selected = selectedTab == 1,
                         onClick = { selectedTab = 1 },
-                        text = { Text("Sons (${userSounds.size})", fontWeight = FontWeight.Bold) }
+                        text = { Text("Playlists", fontWeight = FontWeight.Bold) }
                     )
                     Tab(
                         selected = selectedTab == 2,
                         onClick = { selectedTab = 2 },
-                        text = { Text("Playlists", fontWeight = FontWeight.Bold) }
+                        text = { Text("Téléchargements ($downloadedCount)", fontWeight = FontWeight.Bold) }
                     )
                     Tab(
                         selected = selectedTab == 3,
                         onClick = { selectedTab = 3 },
-                        text = { Text("Téléchargements ($downloadedCount)", fontWeight = FontWeight.Bold) }
-                    )
-                    Tab(
-                        selected = selectedTab == 4,
-                        onClick = { selectedTab = 4 },
                         text = { Text("Settings", fontWeight = FontWeight.Bold) }
                     )
                 }
             }
 
             if (selectedTab == 0) {
-                if (isWingsLoading) {
-                    item {
-                        Box(Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) {
-                            CircularProgressIndicator()
-                        }
-                    }
-                } else if (wingsList.isEmpty()) {
-                    item {
-                        Box(Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) {
-                            Text("Aucune publication vidéo (Wings)", color = Color.Gray)
-                        }
-                    }
-                } else {
-                    items(wingsList.size) { index ->
-                        val wing = wingsList[index]
-                        WingItem(wing)
-                    }
-                }
-            } else if (selectedTab == 1) {
                 if (userSounds.isEmpty()) {
                     item {
                         Box(Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) {
@@ -320,7 +292,7 @@ fun ProfileScreen(
                         }
                     }
                 }
-            } else if (selectedTab == 2) {
+            } else if (selectedTab == 1) {
                 item {
                     Row(
                         modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
@@ -447,7 +419,7 @@ fun ProfileScreen(
                         }
                     }
                 }
-            } else if (selectedTab == 3) {
+            } else if (selectedTab == 2) {
                 item {
                     DownloadedSoundsList(appDatabase, onSoundClick)
                 }

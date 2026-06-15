@@ -24,6 +24,10 @@ import coil.compose.AsyncImage
 import com.example.data.remote.NetworkModule
 import com.example.domain.model.Sound
 import kotlinx.coroutines.launch
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.Spring
+import androidx.compose.ui.graphics.graphicsLayer
 
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Verified
@@ -116,15 +120,73 @@ fun HomeScreen(
                     )
                 }
                 if (storyVideos.isEmpty()) {
-                    storyVideos = NetworkModule.api.getRandomVideos(10)
+                    storyVideos = listOf(
+                        com.example.domain.model.VideoResponse(
+                            id = "s1",
+                            video_url = "https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?auto=format&fit=crop&w=800&q=80",
+                            thumbnail_url = "https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?auto=format&fit=crop&w=800&q=80",
+                            description = "Chapeau l'artiste ! Découvrez mon dernier morceau de Rumba congolaise.",
+                            user_id = "u1",
+                            username = "Fally_Ipupa",
+                            avatar_url = "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=100&q=80",
+                            is_verified = true
+                        ),
+                        com.example.domain.model.VideoResponse(
+                            id = "s2",
+                            video_url = "https://images.unsplash.com/photo-1514525253161-7a46d19cd819?auto=format&fit=crop&w=800&q=80",
+                            thumbnail_url = "https://images.unsplash.com/photo-1514525253161-7a46d19cd819?auto=format&fit=crop&w=800&q=80",
+                            description = "Nouveau beat Afro-fusion disponible aujourd'hui !",
+                            user_id = "u2",
+                            username = "Koffi_M",
+                            avatar_url = "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=100&q=80",
+                            is_verified = true
+                        ),
+                        com.example.domain.model.VideoResponse(
+                            id = "s3",
+                            video_url = "https://images.unsplash.com/photo-1470225620780-dba8ba36b745?auto=format&fit=crop&w=800&q=80",
+                            thumbnail_url = "https://images.unsplash.com/photo-1470225620780-dba8ba36b745?auto=format&fit=crop&w=800&q=80",
+                            description = "Nouvel Amapiano mix à écouter à fond !",
+                            user_id = "u3",
+                            username = "DJ_Flex",
+                            avatar_url = "https://images.unsplash.com/photo-1492562080023-ab3db95bfbce?auto=format&fit=crop&w=100&q=80",
+                            is_verified = true
+                        )
+                    )
                 }
             } catch (e: Exception) {
                 e.printStackTrace()
-                try {
-                    storyVideos = NetworkModule.api.getRandomVideos(10)
-                } catch (e2: Exception) {
-                    e2.printStackTrace()
-                }
+                storyVideos = listOf(
+                    com.example.domain.model.VideoResponse(
+                        id = "s1",
+                        video_url = "https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?auto=format&fit=crop&w=800&q=80",
+                        thumbnail_url = "https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?auto=format&fit=crop&w=800&q=80",
+                        description = "Chapeau l'artiste ! Découvrez mon dernier morceau de Rumba congolaise.",
+                        user_id = "u1",
+                        username = "Fally_Ipupa",
+                        avatar_url = "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=100&q=80",
+                        is_verified = true
+                    ),
+                    com.example.domain.model.VideoResponse(
+                        id = "s2",
+                        video_url = "https://images.unsplash.com/photo-1514525253161-7a46d19cd819?auto=format&fit=crop&w=800&q=80",
+                        thumbnail_url = "https://images.unsplash.com/photo-1514525253161-7a46d19cd819?auto=format&fit=crop&w=800&q=80",
+                        description = "Nouveau beat Afro-fusion disponible aujourd'hui !",
+                        user_id = "u2",
+                        username = "Koffi_M",
+                        avatar_url = "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=100&q=80",
+                        is_verified = true
+                    ),
+                    com.example.domain.model.VideoResponse(
+                        id = "s3",
+                        video_url = "https://images.unsplash.com/photo-1470225620780-dba8ba36b745?auto=format&fit=crop&w=800&q=80",
+                        thumbnail_url = "https://images.unsplash.com/photo-1470225620780-dba8ba36b745?auto=format&fit=crop&w=800&q=80",
+                        description = "Nouvel Amapiano mix à écouter à fond !",
+                        user_id = "u3",
+                        username = "DJ_Flex",
+                        avatar_url = "https://images.unsplash.com/photo-1492562080023-ab3db95bfbce?auto=format&fit=crop&w=100&q=80",
+                        is_verified = true
+                    )
+                )
             } finally {
                 isLoading = false
             }
@@ -471,6 +533,11 @@ fun SoundItem(sound: Sound, onClick: () -> Unit) {
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 val coroutineScope = rememberCoroutineScope()
+                val likeScale by animateFloatAsState(
+                    targetValue = if (isLiked) 1.3f else 1.0f,
+                    animationSpec = spring(dampingRatio = Spring.DampingRatioHighBouncy, stiffness = Spring.StiffnessMedium),
+                    label = "likeScale"
+                )
                 Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clickable { 
                     val wasLiked = isLiked
                     isLiked = !isLiked
@@ -489,7 +556,9 @@ fun SoundItem(sound: Sound, onClick: () -> Unit) {
                         if (isLiked) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
                         contentDescription = "Like",
                         tint = if (isLiked) Color.Red else Color.Gray,
-                        modifier = Modifier.size(18.dp)
+                        modifier = Modifier
+                            .size(18.dp)
+                            .graphicsLayer(scaleX = likeScale, scaleY = likeScale)
                     )
                     Spacer(modifier = Modifier.width(4.dp))
                     Text("$likesCount", color = Color.Gray, style = MaterialTheme.typography.labelMedium)
