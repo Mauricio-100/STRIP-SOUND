@@ -70,6 +70,10 @@ fun StoryViewerScreen(
 
     val currentStory = stories.getOrNull(currentIndex) ?: return
 
+    LaunchedEffect(currentStory.id) {
+        com.example.util.UniqueViewsTracker.trackVideoView(context, currentStory.id)
+    }
+
     val progressAnim = remember(currentIndex) { Animatable(0f) }
 
     LaunchedEffect(currentIndex, isPaused) {

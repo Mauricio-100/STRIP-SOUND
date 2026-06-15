@@ -45,7 +45,33 @@ data class UserResponse(
     val is_verified: Boolean = false,
     val followers_count: Int = 0,
     val following_count: Int = 0,
-    val is_following: Boolean = false
+    val is_following: Boolean = false,
+    val total_wings: Int = 0,
+    val total_sounds: Int = 0,
+    val total_audio_plays: Int = 0,
+    val total_audio_likes: Int = 0
+)
+
+@JsonClass(generateAdapter = true)
+data class Wing(
+    val wing_id: String,
+    val thumbnail_url: String,
+    val video_url: String,
+    val description: String,
+    val views_count: Int = 0,
+    val likes_count: Int = 0,
+    val created_at: String? = null,
+    val sound_id: String? = null,
+    val sound_title: String? = null,
+    val sound_cover: String? = null,
+    val sound_category: String? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class UserWingsResponse(
+    val user_id: String,
+    val page: Int,
+    val wings: List<Wing>
 )
 
 @JsonClass(generateAdapter = true)

@@ -68,6 +68,22 @@ interface StripSoundApi {
     @GET("users/{user_id}")
     suspend fun getUserProfile(@Path("user_id") userId: String): com.example.domain.model.UserResponse
 
+    @GET("profile/{user_id}/full")
+    suspend fun getFullUserProfile(@Path("user_id") userId: String): com.example.domain.model.UserResponse
+
+    @GET("profile/{user_id}/wings")
+    suspend fun getUserWings(
+        @Path("user_id") userId: String,
+        @Query("page") page: Int = 1,
+        @Query("limit") limit: Int = 15
+    ): com.example.domain.model.UserWingsResponse
+
+    @POST("sounds/{sound_id}/play")
+    suspend fun incrementSoundPlay(@Path("sound_id") soundId: String)
+
+    @POST("videos/{video_id}/view")
+    suspend fun incrementVideoView(@Path("video_id") videoId: String)
+
     @GET("stories")
     suspend fun getActiveStories(): List<com.example.domain.model.StoryResponse>
 

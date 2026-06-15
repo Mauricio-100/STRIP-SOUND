@@ -7,14 +7,28 @@ import androidx.activity.enableEdgeToEdge
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.*
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Pause
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import coil.compose.AsyncImage
 import com.example.data.local.AppDatabase
 import com.example.data.local.AudioDownloader
 import com.example.data.local.AuthManager
@@ -66,6 +80,16 @@ class MainActivity : ComponentActivity() {
                     var selectedStories by remember { mutableStateOf<List<VideoResponse>>(emptyList()) }
                     var initialStoryIndex by remember { mutableIntStateOf(0) }
 
+                    val currentPlayActiveSound by audioPlayerManager.currentSound.collectAsState()
+                    val isPlaying by audioPlayerManager.isPlaying.collectAsState()
+                    val currentPosition by audioPlayerManager.currentPosition.collectAsState()
+                    val duration by audioPlayerManager.duration.collectAsState()
+                    val volume by audioPlayerManager.volume.collectAsState()
+
+                    LaunchedEffect(currentPlayActiveSound) {
+                        currentPlayActiveSound?.let { currentSound = it }
+                    }
+
                     LaunchedEffect(isLoggedIn) {
                         if (isLoggedIn) {
                             navController.navigate("home") {
@@ -78,81 +102,108 @@ class MainActivity : ComponentActivity() {
                         }
                     }
 
-                    NavHost(
-                        navController = navController, 
-                        startDestination = if (isLoggedIn) "home" else "auth"
-                    ) {
-                        composable("auth") {
-                            AuthScreen(
-                                authManager = authManager,
-                                onLoginSuccess = {
-                                    navController.navigate("home") {
-                                        popUpTo("auth") { inclusive = true }
+                    Box(modifier = Modifier.fillMaxSize()) {
+                        NavHost(
+                            navController = navController, 
+                            startDestination = if (isLoggedIn) "home" else "auth"
+                        ) {
+                            composable("auth") {
+                                AuthScreen(
+                                    authManager = authManager,
+                                    onLoginSuccess = {
+                                        navController.navigate("home") {
+                                            popUpTo("auth") { inclusive = true }
+                                        }
                                     }
-                                }
-                            )
+                                )
+                            }
+                            composable("home") {
+                                HomeScreen(
+                                    onSoundClick = { sound ->
+                                        currentSound = sound
+                                        showPlayer = true
+                                    },
+                                    onProfileClick = {
+                                        navController.navigate("profile")
+                                    },
+                                    onUploadClick = {
+                                        navController.navigate("upload")
+                                    },
+                                    onStoryClick = { stories, index ->
+                                        selectedStories = stories
+                                        initialStoryIndex = index
+                                        navController.navigate("story_view")
+                                    },
+                                    onCreateStoryClick = {
+                                        navController.navigate("create_story")
+                                    },
+                                    searchHistoryManager = searchHistoryManager
+                                )
+                            }
+                            composable("create_story") {
+                                CreateStoryScreen(onBack = { navController.popBackStack() })
+                            }
+                            composable("story_view") {
+                                StoryViewerScreen(
+                                    stories = selectedStories,
+                                    initialIndex = initialStoryIndex,
+                                    onClose = { navController.popBackStack() }
+                                )
+                            }
+                            composable("upload") {
+                                UploadSoundScreen(
+                                    onBack = { navController.popBackStack() }
+                                )
+                            }
+                            composable("profile") {
+                                ProfileScreen(
+                                    userId = null,
+                                    authManager = authManager,
+                                    appDatabase = appDatabase,
+                                    onBack = { navController.popBackStack() },
+                                    onLogout = { },
+                                    onAnalyticsClick = { navController.navigate("analytics") },
+                                    onSoundClick = { sound ->
+                                        currentSound = sound
+                                        showPlayer = true
+                                    }
+                                )
+                            }
+                            composable("profile/{userId}") { backStackEntry ->
+                                ProfileScreen(
+                                    userId = backStackEntry.arguments?.getString("userId"),
+                                    authManager = authManager,
+                                    appDatabase = appDatabase,
+                                    onBack = { navController.popBackStack() },
+                                    onLogout = { },
+                                    onAnalyticsClick = { navController.navigate("analytics") },
+                                    onSoundClick = { sound ->
+                                        currentSound = sound
+                                        showPlayer = true
+                                    }
+                                )
+                            }
+                            composable("analytics") {
+                                AnalyticsScreen(
+                                    onBack = { navController.popBackStack() }
+                                )
+                            }
                         }
-                        composable("home") {
-                            HomeScreen(
-                                onSoundClick = { sound ->
-                                    currentSound = sound
-                                    showPlayer = true
-                                },
-                                onProfileClick = {
-                                    navController.navigate("profile")
-                                },
-                                onUploadClick = {
-                                    navController.navigate("upload")
-                                },
-                                onStoryClick = { stories, index ->
-                                    selectedStories = stories
-                                    initialStoryIndex = index
-                                    navController.navigate("story_view")
-                                },
-                                onCreateStoryClick = {
-                                    navController.navigate("create_story")
-                                },
-                                searchHistoryManager = searchHistoryManager
-                            )
-                        }
-                        composable("create_story") {
-                            CreateStoryScreen(onBack = { navController.popBackStack() })
-                        }
-                        composable("story_view") {
-                            StoryViewerScreen(
-                                stories = selectedStories,
-                                initialIndex = initialStoryIndex,
-                                onClose = { navController.popBackStack() }
-                            )
-                        }
-                        composable("upload") {
-                            UploadSoundScreen(
-                                onBack = { navController.popBackStack() }
-                            )
-                        }
-                        composable("profile") {
-                            ProfileScreen(
-                                userId = null,
-                                authManager = authManager,
-                                appDatabase = appDatabase,
-                                onBack = { navController.popBackStack() },
-                                onLogout = { },
-                                onAnalyticsClick = { navController.navigate("analytics") }
-                            )
-                        }
-                        composable("profile/{userId}") { backStackEntry ->
-                            ProfileScreen(
-                                userId = backStackEntry.arguments?.getString("userId"),
-                                authManager = authManager,
-                                appDatabase = appDatabase,
-                                onBack = { navController.popBackStack() },
-                                onLogout = { },
-                                onAnalyticsClick = { navController.navigate("analytics") }
-                            )
-                        }
-                        composable("analytics") {
-                            AnalyticsScreen(
-                                onBack = { navController.popBackStack() }
+
+                        // Persistent bottom audio player component
+                        if (isLoggedIn && currentSound != null && !showPlayer) {
+                            PersistentPlayerBar(
+                                sound = currentSound!!,
+                                isPlaying = isPlaying,
+                                currentPosition = currentPosition,
+                                duration = duration,
+                                volume = volume,
+                                onPlayPauseClick = { audioPlayerManager.togglePlayPause() },
+                                onVolumeChange = { audioPlayerManager.setVolume(it) },
+                                onBarClick = { showPlayer = true },
+                                modifier = Modifier
+                                    .align(Alignment.BottomCenter)
+                                    .padding(horizontal = 16.dp, vertical = 24.dp)
                             )
                         }
                     }
@@ -184,5 +235,118 @@ class MainActivity : ComponentActivity() {
     override fun onDestroy() {
         super.onDestroy()
         audioPlayerManager.release()
+    }
+}
+
+@Composable
+fun PersistentPlayerBar(
+    sound: Sound,
+    isPlaying: Boolean,
+    currentPosition: Long,
+    duration: Long,
+    volume: Float,
+    onPlayPauseClick: () -> Unit,
+    onVolumeChange: (Float) -> Unit,
+    onBarClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val progressFract = if (duration > 0) currentPosition.toFloat() / duration else 0f
+    
+    Card(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(72.dp)
+            .clickable(onClick = onBarClick),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.95f)
+        ),
+        shape = RoundedCornerShape(12.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
+    ) {
+        Column(modifier = Modifier.fillMaxSize()) {
+            LinearProgressIndicator(
+                progress = { progressFract },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(3.dp),
+                color = Color(0xFF06B6D4),
+                trackColor = Color.DarkGray
+            )
+            
+            Row(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                AsyncImage(
+                    model = sound.cover_url ?: "https://picsum.photos/200",
+                    contentDescription = "Cover",
+                    modifier = Modifier
+                        .size(42.dp)
+                        .clip(RoundedCornerShape(6.dp))
+                        .border(1.dp, Color.White.copy(alpha = 0.15f), RoundedCornerShape(6.dp)),
+                    contentScale = ContentScale.Crop
+                )
+                
+                Spacer(modifier = Modifier.width(10.dp))
+                
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = sound.title ?: "Untitled",
+                        color = Color.White,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = sound.username ?: sound.author_username ?: "Unknown Artist",
+                        color = Color.Gray,
+                        fontSize = 11.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+                
+                IconButton(onClick = onPlayPauseClick, modifier = Modifier.size(36.dp)) {
+                    Icon(
+                        imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                        contentDescription = if (isPlaying) "Pause" else "Play",
+                        tint = Color.White,
+                        modifier = Modifier.size(24.dp)
+                    )
+                }
+                
+                Spacer(modifier = Modifier.width(8.dp))
+                
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.padding(end = 4.dp)
+                ) {
+                    Text(
+                        text = " VOL ",
+                        color = Color(0xFF06B6D4),
+                        fontSize = 9.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier
+                            .border(1.dp, Color(0xFF06B6D4).copy(alpha = 0.4f), RoundedCornerShape(4.dp))
+                            .padding(horizontal = 4.dp, vertical = 2.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Slider(
+                        value = volume,
+                        onValueChange = onVolumeChange,
+                        modifier = Modifier.width(60.dp),
+                        colors = SliderDefaults.colors(
+                            thumbColor = Color(0xFF06B6D4),
+                            activeTrackColor = Color(0xFF06B6D4),
+                            inactiveTrackColor = Color.DarkGray
+                        )
+                    )
+                }
+            }
+        }
     }
 }

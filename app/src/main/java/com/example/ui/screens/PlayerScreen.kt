@@ -41,6 +41,7 @@ import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.Comment
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.List
 import androidx.compose.foundation.clickable
 import android.content.Intent
 import androidx.compose.ui.layout.onSizeChanged
@@ -67,12 +68,13 @@ fun PlayerScreen(
     val isPlaying by audioPlayerManager.isPlaying.collectAsState()
     var isDownloaded by remember { mutableStateOf(false) }
     var isDownloading by remember { mutableStateOf(false) }
-    var currentPosition by remember { mutableLongStateOf(0L) }
-    var duration by remember { mutableLongStateOf(0L) }
+    val currentPosition by audioPlayerManager.currentPosition.collectAsState()
+    val duration by audioPlayerManager.duration.collectAsState()
     var isLiked by remember { mutableStateOf(false) }
     var likesCount by remember { mutableIntStateOf(sound.plays_count / 10) }
     
     var showComments by remember { mutableStateOf(false) }
+    var showAddToPlaylistDialog by remember { mutableStateOf(false) }
     var commentsList by remember { mutableStateOf<List<com.example.domain.model.Comment>>(emptyList()) }
     var isCommentsLoading by remember { mutableStateOf(false) }
     var newCommentText by remember { mutableStateOf("") }
@@ -80,15 +82,8 @@ fun PlayerScreen(
     val coroutineScope = rememberCoroutineScope()
     val context = LocalContext.current
     
-    LaunchedEffect(isPlaying) {
-        while (isActive && isPlaying) {
-            currentPosition = audioPlayerManager.player?.currentPosition ?: 0L
-            duration = audioPlayerManager.player?.duration?.coerceAtLeast(0L) ?: 0L
-            delay(1000)
-        }
-    }
-    
     LaunchedEffect(sound) {
+        com.example.util.UniqueViewsTracker.trackSoundPlay(context, sound.id)
         isDownloaded = audioDownloader.isDownloaded(sound.id)
         val localUrl = if (isDownloaded) {
             val entity = appDatabase.soundDao().getDownloadedSound(sound.id)
@@ -105,7 +100,7 @@ fun PlayerScreen(
             .setArtworkUri(if (sound.cover_url != null) android.net.Uri.parse(sound.cover_url) else null)
             .build()
             
-        audioPlayerManager.playTrack(url = url, itemMetadata = mediaMetadata)
+        audioPlayerManager.playTrack(url = url, sound = sound, itemMetadata = mediaMetadata)
     }
 
     LazyColumn(
@@ -341,43 +336,30 @@ fun PlayerScreen(
                     Spacer(modifier = Modifier.width(6.dp))
                     Text("Partager", color = Color.LightGray, fontSize = 12.sp)
                 }
+
+                Spacer(modifier = Modifier.width(16.dp))
+
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clickable {
+                    showAddToPlaylistDialog = true
+                }) {
+                    Icon(Icons.Default.List, contentDescription = "Playlist", tint = Color.Gray, modifier = Modifier.size(20.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("Playlist", color = Color.LightGray, fontSize = 12.sp)
+                }
             }
 
             Spacer(modifier = Modifier.weight(1f))
             
-            // "Visualizer" / progress bar placeholder
-            var rowWidth by remember { mutableFloatStateOf(1f) }
-            Row(
-                modifier = Modifier.fillMaxWidth().height(48.dp)
-                    .onSizeChanged { rowWidth = it.width.toFloat() }
-                    .pointerInput(duration) {
-                        detectTapGestures { offset ->
-                            if (duration > 0 && rowWidth > 0) {
-                                val newPos = (offset.x / rowWidth) * duration
-                                audioPlayerManager.seekTo(newPos.toLong())
-                            }
-                        }
-                    },
-                verticalAlignment = Alignment.Bottom,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                val totalBars = 30
-                val progressFract = if (duration > 0) currentPosition.toFloat() / duration else 0f
-                val activeBarsEndIndex = (totalBars * progressFract).toInt()
-                
-                for (i in 0 until totalBars) {
-                    val color = if (i <= activeBarsEndIndex) Color(0xFF06B6D4) else Color.DarkGray
-                    val heightFract = 0.2f + (0.8f * Math.random()).toFloat()
-                    Box(
-                        modifier = Modifier
-                            .weight(1f)
-                            .fillMaxHeight(heightFract)
-                            .padding(horizontal = 1.dp)
-                            .clip(RoundedCornerShape(topStart = 4.dp, topEnd = 4.dp))
-                            .background(color)
-                    )
-                }
-            }
+            // "Visualizer" / progress bar with deterministic high-res waveform
+            WaveformVisualizer(
+                soundId = sound.id,
+                currentPosition = currentPosition,
+                duration = duration,
+                onSeek = { audioPlayerManager.seekTo(it) },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(56.dp)
+            )
             Spacer(modifier = Modifier.height(8.dp))
             
             val currSec = (currentPosition / 1000) % 60
@@ -512,6 +494,14 @@ fun PlayerScreen(
             }
         }
     }
+
+    if (showAddToPlaylistDialog) {
+        AddToPlaylistDialog(
+            sound = sound,
+            appDatabase = appDatabase,
+            onDismiss = { showAddToPlaylistDialog = false }
+        )
+    }
 }
 
 @Composable
@@ -628,6 +618,67 @@ fun AuthorMiniProfile(
                 )
             ) {
                 Text(if (isFollowing) "Following" else "Follow", color = if (isFollowing) Color.White else Color.Black)
+            }
+        }
+    }
+}
+
+@Composable
+fun WaveformVisualizer(
+    soundId: String,
+    currentPosition: Long,
+    duration: Long,
+    onSeek: (Long) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val heights = remember(soundId) {
+        val seed = soundId.hashCode().toLong()
+        val random = java.util.Random(seed)
+        List(60) { 0.15f + 0.85f * random.nextFloat() }
+    }
+
+    var width by remember { mutableIntStateOf(1) }
+
+    Box(
+        modifier = modifier
+            .onSizeChanged { width = it.width.coerceAtLeast(1) }
+            .pointerInput(duration, width) {
+                detectTapGestures { offset ->
+                    if (duration > 0 && width > 1) {
+                        val fraction = (offset.x / width).coerceIn(0f, 1f)
+                        onSeek((fraction * duration).toLong())
+                    }
+                }
+            }
+    ) {
+        androidx.compose.foundation.Canvas(modifier = Modifier.fillMaxSize()) {
+            val canvasWidth = size.width
+            val canvasHeight = size.height
+            val barCount = heights.size
+            val barSpacing = 4f
+            val totalSpacing = barSpacing * (barCount - 1)
+            val barWidth = (canvasWidth - totalSpacing) / barCount
+
+            val progressFract = if (duration > 0) currentPosition.toFloat() / duration else 0f
+            val activeBarsCount = (barCount * progressFract).toInt()
+
+            for (i in 0 until barCount) {
+                val baseHeight = heights[i] * canvasHeight
+                val left = i * (barWidth + barSpacing)
+                val top = (canvasHeight - baseHeight) / 2f
+                val barSize = androidx.compose.ui.geometry.Size(barWidth, baseHeight)
+                val color = if (i <= activeBarsCount) {
+                    Color(0xFF06B6D4) // Lucid Cyan for played portion
+                } else {
+                    Color.Gray.copy(alpha = 0.35f) // Warm dark gray for unplayed portion
+                }
+                
+                drawRoundRect(
+                    color = color,
+                    topLeft = androidx.compose.ui.geometry.Offset(left, top),
+                    size = barSize,
+                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(barWidth / 2f, barWidth / 2f)
+                )
             }
         }
     }
