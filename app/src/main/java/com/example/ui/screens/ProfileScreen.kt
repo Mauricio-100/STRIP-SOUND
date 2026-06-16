@@ -42,6 +42,45 @@ import androidx.compose.ui.platform.LocalContext
 
 import androidx.compose.material.icons.filled.BarChart
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.Star
+
+fun calculateZodiacFromDob(dob: String): String {
+    if (dob.isBlank()) return "Entrez votre date de naissance YY/MM/JJ"
+    val parts = dob.trim().split(Regex("[/\\-. ]+"))
+    if (parts.size < 3) return "Incomplet (Ex: 01/05/25)"
+    val p1 = parts[0].toIntOrNull() ?: return "Format invalide (Ex: YY/MM/JJ)"
+    val p2 = parts[1].toIntOrNull() ?: return "Format invalide"
+    val p3 = parts[2].toIntOrNull() ?: return "Format invalide"
+    var month = p2
+    var day = p3
+    if (p1 > 31) {
+        month = p2
+        day = p3
+    } else if (p3 > 31) {
+        month = p2
+        day = p1
+    } else {
+        month = p2
+        day = p3
+    }
+    if (month !in 1..12) return "Mois invalide"
+    if (day !in 1..31) return "Jour invalide"
+    return when (month) {
+        1 -> if (day < 20) "Capricorne ♑" else "Verseau ♒"
+        2 -> if (day < 19) "Verseau ♒" else "Poissons ♓"
+        3 -> if (day < 21) "Poissons ♓" else "Bélier ♈"
+        4 -> if (day < 20) "Bélier ♈" else "Taureau ♉"
+        5 -> if (day < 21) "Taureau ♉" else "Gémeaux ♊"
+        6 -> if (day < 21) "Gémeaux ♊" else "Cancer ♋"
+        7 -> if (day < 23) "Cancer ♋" else "Lion ♌"
+        8 -> if (day < 23) "Lion ♌" else "Vierge ♍"
+        9 -> if (day < 23) "Vierge ♍" else "Balance ♎"
+        10 -> if (day < 23) "Balance ♎" else "Scorpion ♏"
+        11 -> if (day < 22) "Scorpion ♏" else "Sagittaire ♐"
+        12 -> if (day < 22) "Sagittaire ♐" else "Capricorne ♑"
+        else -> "Inconnu 🌌"
+    }
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -60,6 +99,11 @@ fun ProfileScreen(
     var downloadedCount by remember { mutableStateOf(0) }
     val coroutineScope = rememberCoroutineScope()
 
+    var phoneState by remember { mutableStateOf("") }
+    var emailState by remember { mutableStateOf("") }
+    var dobState by remember { mutableStateOf("") }
+    var isFollowing by remember { mutableStateOf(false) }
+
     var selectedTab by remember { mutableStateOf(0) }
     var wingsList by remember { mutableStateOf<List<com.example.domain.model.Wing>>(emptyList()) }
     var userSounds by remember { mutableStateOf<List<com.example.domain.model.Sound>>(emptyList()) }
@@ -76,6 +120,12 @@ fun ProfileScreen(
                 userProfile = NetworkModule.api.getFullUserProfile(userId)
             } else {
                 userProfile = NetworkModule.api.getMyProfile()
+            }
+            userProfile?.let {
+                isFollowing = it.is_following
+                phoneState = authManager.getPhone(it.id)
+                emailState = authManager.getEmail(it.id)
+                dobState = authManager.getDob(it.id)
             }
             val targetId = userId ?: userProfile?.id
             if (targetId != null) {
@@ -198,9 +248,110 @@ fun ProfileScreen(
                                     Text("Following", color = Color.Gray, style = MaterialTheme.typography.bodySmall)
                                 }
                             }
+
+                            if (userId != null && userId != authManager.getUserId()) {
+                                Spacer(modifier = Modifier.height(10.dp))
+                                Button(
+                                    onClick = {
+                                        coroutineScope.launch {
+                                            try {
+                                                if (isFollowing) {
+                                                    NetworkModule.api.unfollowUser(userId)
+                                                    isFollowing = false
+                                                    userProfile = userProfile?.copy(followers_count = (userProfile?.followers_count ?: 1) - 1)
+                                                } else {
+                                                    NetworkModule.api.followUser(userId)
+                                                    isFollowing = true
+                                                    userProfile = userProfile?.copy(followers_count = (userProfile?.followers_count ?: 0) + 1)
+                                                }
+                                            } catch (e: Exception) {
+                                                e.printStackTrace()
+                                            }
+                                        }
+                                    },
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = if (isFollowing) Color(0xFF1F2937) else MaterialTheme.colorScheme.primary,
+                                        contentColor = if (isFollowing) Color.White else Color.Black
+                                    ),
+                                    shape = RoundedCornerShape(20.dp),
+                                    modifier = Modifier.height(34.dp)
+                                ) {
+                                    Text(
+                                        text = if (isFollowing) "Abonné ✓" else "S'abonner",
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 12.sp
+                                    )
+                                }
+                            }
                         }
                     }
                     
+                    val currentProfileId = userProfile?.id
+                    val currentPhone = remember(currentProfileId, phoneState) { currentProfileId?.let { authManager.getPhone(it) } ?: "" }
+                    val currentEmail = remember(currentProfileId, emailState) { currentProfileId?.let { authManager.getEmail(it) } ?: "" }
+                    val currentDob = remember(currentProfileId, dobState) { currentProfileId?.let { authManager.getDob(it) } ?: "" }
+                    val currentZodiac = remember(currentDob) { if (currentDob.isNotBlank()) calculateZodiacFromDob(currentDob) else "" }
+
+                    if (currentDob.isNotBlank() || currentEmail.isNotBlank() || currentPhone.isNotBlank()) {
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = CardDefaults.cardColors(containerColor = Color(0xFF181528)),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF8B5CF6).copy(alpha = 0.4f)),
+                            shape = RoundedCornerShape(16.dp)
+                        ) {
+                            Column(modifier = Modifier.padding(16.dp)) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Star,
+                                        contentDescription = "Zodiac",
+                                        tint = Color(0xFFA78BFA),
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        text = "Profil Astrologique & Contact",
+                                        style = MaterialTheme.typography.titleSmall,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color.White
+                                    )
+                                }
+                                
+                                if (currentDob.isNotBlank()) {
+                                    Spacer(modifier = Modifier.height(10.dp))
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Text("📅 Date de Naissance : ", color = Color.Gray, style = MaterialTheme.typography.bodyMedium)
+                                        Text(currentDob, color = Color.White, fontWeight = FontWeight.Medium, style = MaterialTheme.typography.bodyMedium)
+                                    }
+                                    Spacer(modifier = Modifier.height(6.dp))
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Text("🔮 Signe du Zodiaque : ", color = Color.Gray, style = MaterialTheme.typography.bodyMedium)
+                                        Text(currentZodiac, color = Color(0xFFA78BFA), fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium)
+                                    }
+                                }
+                                
+                                if (currentEmail.isNotBlank()) {
+                                    Spacer(modifier = Modifier.height(6.dp))
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Text("📧 Email : ", color = Color.Gray, style = MaterialTheme.typography.bodyMedium)
+                                        Text(currentEmail, color = Color.White, style = MaterialTheme.typography.bodyMedium)
+                                    }
+                                }
+                                
+                                if (currentPhone.isNotBlank()) {
+                                    Spacer(modifier = Modifier.height(6.dp))
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Text("📞 Téléphone : ", color = Color.Gray, style = MaterialTheme.typography.bodyMedium)
+                                        Text(currentPhone, color = Color.White, style = MaterialTheme.typography.bodyMedium)
+                                    }
+                                }
+                            }
+                        }
+                    }
+
                     Spacer(modifier = Modifier.height(12.dp))
                     Card(
                         modifier = Modifier.fillMaxWidth(),
@@ -241,27 +392,50 @@ fun ProfileScreen(
                     Tab(
                         selected = selectedTab == 0,
                         onClick = { selectedTab = 0 },
-                        text = { Text("Sons (${userSounds.size})", fontWeight = FontWeight.Bold) }
+                        text = { Text("Wings", fontWeight = FontWeight.Bold) }
                     )
                     Tab(
                         selected = selectedTab == 1,
                         onClick = { selectedTab = 1 },
-                        text = { Text("Playlists", fontWeight = FontWeight.Bold) }
+                        text = { Text("Sons (${userSounds.size})", fontWeight = FontWeight.Bold) }
                     )
                     Tab(
                         selected = selectedTab == 2,
                         onClick = { selectedTab = 2 },
-                        text = { Text("Téléchargements ($downloadedCount)", fontWeight = FontWeight.Bold) }
+                        text = { Text("Playlists", fontWeight = FontWeight.Bold) }
                     )
                     Tab(
                         selected = selectedTab == 3,
                         onClick = { selectedTab = 3 },
+                        text = { Text("Téléchargements ($downloadedCount)", fontWeight = FontWeight.Bold) }
+                    )
+                    Tab(
+                        selected = selectedTab == 4,
+                        onClick = { selectedTab = 4 },
                         text = { Text("Settings", fontWeight = FontWeight.Bold) }
                     )
                 }
             }
 
             if (selectedTab == 0) {
+                if (isWingsLoading) {
+                    item {
+                        Box(Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) {
+                            CircularProgressIndicator()
+                        }
+                    }
+                } else if (wingsList.isEmpty()) {
+                    item {
+                        Box(Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) {
+                            Text("Aucune publication (Wing)", color = Color.Gray)
+                        }
+                    }
+                } else {
+                    items(wingsList.size) { index ->
+                        WingItem(wing = wingsList[index])
+                    }
+                }
+            } else if (selectedTab == 1) {
                 if (userSounds.isEmpty()) {
                     item {
                         Box(Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) {
@@ -292,7 +466,7 @@ fun ProfileScreen(
                         }
                     }
                 }
-            } else if (selectedTab == 1) {
+            } else if (selectedTab == 2) {
                 item {
                     Row(
                         modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
@@ -419,12 +593,130 @@ fun ProfileScreen(
                         }
                     }
                 }
-            } else if (selectedTab == 2) {
+            } else if (selectedTab == 3) {
                 item {
                     DownloadedSoundsList(appDatabase, onSoundClick)
                 }
-            } else {
+            } else if (selectedTab == 4) {
                 item {
+                    val isMyProfile = (userId == null || userId == authManager.getUserId())
+                    if (isMyProfile) {
+                        Card(
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                            colors = CardDefaults.cardColors(containerColor = Color(0xFF151821)),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF00FFCC).copy(alpha = 0.3f)),
+                            shape = RoundedCornerShape(16.dp)
+                        ) {
+                            Column(modifier = Modifier.padding(16.dp)) {
+                                Text(
+                                    text = "Éditer mes coordonnées & Zodiaque",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFF00FFCC)
+                                )
+                                Spacer(modifier = Modifier.height(12.dp))
+                                
+                                // Email Input
+                                OutlinedTextField(
+                                    value = emailState,
+                                    onValueChange = { emailState = it },
+                                    label = { Text("Adresse Email") },
+                                    leadingIcon = { Text("📧") },
+                                    singleLine = true,
+                                    modifier = Modifier.fillMaxWidth(),
+                                    colors = OutlinedTextFieldDefaults.colors(
+                                        focusedTextColor = Color.White,
+                                        unfocusedTextColor = Color.White,
+                                        focusedBorderColor = MaterialTheme.colorScheme.primary,
+                                        unfocusedBorderColor = Color.Gray
+                                    )
+                                )
+                                
+                                Spacer(modifier = Modifier.height(8.dp))
+                                
+                                // Phone Input
+                                OutlinedTextField(
+                                    value = phoneState,
+                                    onValueChange = { phoneState = it },
+                                    label = { Text("Numéro de Téléphone") },
+                                    leadingIcon = { Text("📞") },
+                                    singleLine = true,
+                                    modifier = Modifier.fillMaxWidth(),
+                                    colors = OutlinedTextFieldDefaults.colors(
+                                        focusedTextColor = Color.White,
+                                        unfocusedTextColor = Color.White,
+                                        focusedBorderColor = MaterialTheme.colorScheme.primary,
+                                        unfocusedBorderColor = Color.Gray
+                                    )
+                                )
+                                
+                                Spacer(modifier = Modifier.height(8.dp))
+                                
+                                // DOB Input
+                                OutlinedTextField(
+                                    value = dobState,
+                                    onValueChange = { dobState = it },
+                                    label = { Text("Date de Naissance (YY/MM/JJ)") },
+                                    leadingIcon = { Text("📅") },
+                                    singleLine = true,
+                                    modifier = Modifier.fillMaxWidth(),
+                                    colors = OutlinedTextFieldDefaults.colors(
+                                        focusedTextColor = Color.White,
+                                        unfocusedTextColor = Color.White,
+                                        focusedBorderColor = MaterialTheme.colorScheme.primary,
+                                        unfocusedBorderColor = Color.Gray
+                                    )
+                                )
+                                
+                                Spacer(modifier = Modifier.height(10.dp))
+                                
+                                // Zodiac Sign live detection
+                                val liveZodiac = calculateZodiacFromDob(dobState)
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(Color(0x0DFFFFFF))
+                                        .padding(8.dp)
+                                ) {
+                                    Text("🔮 Signe Détecté : ", color = Color.Gray, style = MaterialTheme.typography.bodyMedium)
+                                    Text(
+                                        text = liveZodiac,
+                                        color = if (liveZodiac.startsWith("Format") || liveZodiac.startsWith("Mois") || liveZodiac.startsWith("Jour") || liveZodiac.startsWith("Inconnu") || liveZodiac.startsWith("Entrez") || liveZodiac.startsWith("Incomplet")) Color.LightGray.copy(alpha = 0.5f) else Color(0xFF00FFCC),
+                                        fontWeight = FontWeight.Bold,
+                                        style = MaterialTheme.typography.bodyMedium
+                                    )
+                                }
+                                
+                                Spacer(modifier = Modifier.height(12.dp))
+                                
+                                Button(
+                                    onClick = {
+                                        val myId = userProfile?.id
+                                        if (myId != null) {
+                                            authManager.savePersonalDetails(
+                                                userId = myId,
+                                                phone = phoneState,
+                                                email = emailState,
+                                                dob = dobState
+                                            )
+                                            Toast.makeText(context, "Profil enregistré ! Signe: $liveZodiac", Toast.LENGTH_SHORT).show()
+                                        } else {
+                                            Toast.makeText(context, "Erreur : Profil introuvable", Toast.LENGTH_SHORT).show()
+                                        }
+                                    },
+                                    shape = RoundedCornerShape(24.dp),
+                                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+                                    modifier = Modifier.align(Alignment.End)
+                                ) {
+                                    Text("Sauvegarder", color = Color.Black, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(16.dp))
+                    }
+
                     Text("App Settings", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
                     Spacer(modifier = Modifier.height(8.dp))
                     

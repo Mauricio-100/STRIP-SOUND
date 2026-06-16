@@ -17,6 +17,9 @@ import kotlinx.coroutines.delay
 
 class AudioPlayerManager(private val context: Context) {
 
+    val deviceDetector = AudioDeviceDetector(context)
+    val webBluetoothManager = WebBluetoothManager(context, deviceDetector)
+
     private var controllerFuture: ListenableFuture<MediaController>? = null
     var player: Player? = null
         private set
@@ -61,13 +64,8 @@ class AudioPlayerManager(private val context: Context) {
     }
 
     init {
-        val attributionContext = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
-            context.createAttributionContext("AudioService")
-        } else {
-            context
-        }
-        val sessionToken = SessionToken(attributionContext, ComponentName(attributionContext, AudioService::class.java))
-        controllerFuture = MediaController.Builder(attributionContext, sessionToken).buildAsync()
+        val sessionToken = SessionToken(context, ComponentName(context, AudioService::class.java))
+        controllerFuture = MediaController.Builder(context, sessionToken).buildAsync()
         controllerFuture?.addListener(
             {
                 player = controllerFuture?.get()
@@ -129,6 +127,7 @@ class AudioPlayerManager(private val context: Context) {
 
     fun release() {
         progressJob?.cancel()
+        deviceDetector.release()
         controllerFuture?.let { MediaController.releaseFuture(it) }
     }
 }

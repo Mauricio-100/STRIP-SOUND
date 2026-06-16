@@ -111,3 +111,38 @@ data class StoryResponse(
 data class LikeResponse(
     val liked: Boolean
 )
+
+@JsonClass(generateAdapter = true)
+data class StoryUploadResponse(
+    val status: String,
+    val story_id: String,
+    val media_url: String,
+    val media_type: String,
+    val effect_applied: String? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class SearchMetadata(
+    val status: String? = null,
+    val agent_signature: String? = null,
+    val is_verified_agent: Boolean = false
+)
+
+@JsonClass(generateAdapter = true)
+data class SearchResponse(
+    val results: List<Sound>,
+    val metadata: SearchMetadata? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class UserSearchResponse(
+    val results: List<UserResponse>,
+    val metadata: SearchMetadata? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class SoundDetailsResponse(
+    val sound: Sound,
+    val attribution_label: String? = null,
+    val videos: List<VideoResponse> = emptyList()
+)

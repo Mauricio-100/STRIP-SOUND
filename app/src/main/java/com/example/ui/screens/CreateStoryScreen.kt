@@ -1,5 +1,6 @@
 package com.example.ui.screens
 
+import android.content.Context
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -24,6 +25,38 @@ import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import okhttp3.MediaType.Companion.toMediaTypeOrNull
+import okhttp3.MultipartBody
+import okhttp3.RequestBody.Companion.asRequestBody
+import java.io.File
+import java.io.FileOutputStream
+import com.example.data.remote.NetworkModule
+
+fun getFileFromUri(context: Context, uri: Uri): File? {
+    return try {
+        val inputStream = context.contentResolver.openInputStream(uri) ?: return null
+        val tempFile = File.createTempFile("story_temp", ".jpg", context.cacheDir)
+        tempFile.outputStream().use { outputStream ->
+            inputStream.copyTo(outputStream)
+        }
+        tempFile
+    } catch (e: Exception) {
+        null
+    }
+}
+
+fun getFileFromBitmap(context: Context, bitmap: android.graphics.Bitmap): File? {
+    return try {
+        val tempFile = File.createTempFile("story_temp", ".jpg", context.cacheDir)
+        FileOutputStream(tempFile).use { out ->
+            bitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 100, out)
+            out.flush()
+        }
+        tempFile
+    } catch (e: Exception) {
+        null
+    }
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -32,6 +65,7 @@ fun CreateStoryScreen(onBack: () -> Unit) {
     var isUploading by remember { mutableStateOf(false) }
     var isSuccess by remember { mutableStateOf(false) }
     val coroutineScope = rememberCoroutineScope()
+    val context = LocalContext.current
 
     val galleryLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
@@ -135,11 +169,28 @@ fun CreateStoryScreen(onBack: () -> Unit) {
                         if (selectedImageUri != null || capturedImageBitmap != null) {
                             coroutineScope.launch {
                                 isUploading = true
-                                delay(2000) // Simulate upload
-                                isUploading = false
-                                isSuccess = true
-                                delay(1000)
-                                onBack() // go back automatically after success
+                                try {
+                                    val file = if (selectedImageUri != null) {
+                                        getFileFromUri(context, selectedImageUri!!)
+                                    } else {
+                                        getFileFromBitmap(context, capturedImageBitmap!!)
+                                    }
+
+                                    if (file != null) {
+                                        val reqFile = file.asRequestBody("image/*".toMediaTypeOrNull())
+                                        val body = MultipartBody.Part.createFormData("file", file.name, reqFile)
+                                        NetworkModule.api.uploadStory(body, null)
+                                        isSuccess = true
+                                        delay(1000)
+                                        onBack() // go back automatically after success
+                                    } else {
+                                        // Handle file error
+                                    }
+                                } catch (e: Exception) {
+                                    e.printStackTrace()
+                                } finally {
+                                    isUploading = false
+                                }
                             }
                         }
                     },

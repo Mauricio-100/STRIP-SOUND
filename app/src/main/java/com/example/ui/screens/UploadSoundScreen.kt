@@ -188,7 +188,7 @@ suspend fun extractWaveform(context: Context, uri: Uri, pointsCount: Int = 100):
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun UploadSoundScreen(onBack: () -> Unit) {
+fun UploadSoundScreen(onBack: () -> Unit, onNavigateToAudioMetadata: () -> Unit = {}) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
     
@@ -449,6 +449,16 @@ fun UploadSoundScreen(onBack: () -> Unit) {
                 singleLine = true,
                 shape = RoundedCornerShape(12.dp)
             )
+            
+            Button(
+                onClick = onNavigateToAudioMetadata,
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF141E28)),
+                border = BorderStroke(1.dp, Color(0x33FFFFFF))
+            ) {
+                Text("Edit Technical Audio Metadata", color = Color(0xFF00FFCC))
+            }
 
             ExposedDropdownMenuBox(
                 expanded = isCategoryDropdownExpanded,

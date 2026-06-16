@@ -54,7 +54,7 @@ interface StripSoundApi {
     ): com.example.domain.model.Comment
 
     @POST("sounds/{sound_id}/like")
-    suspend fun likeSound(@Path("sound_id") soundId: String)
+    suspend fun likeSound(@Path("sound_id") soundId: String): com.example.domain.model.LikeResponse
 
     @POST("users/{user_id}/follow")
     suspend fun followUser(@Path("user_id") userId: String)
@@ -90,10 +90,27 @@ interface StripSoundApi {
     @GET("stories")
     suspend fun getActiveStories(): List<com.example.domain.model.StoryResponse>
 
+    @Multipart
+    @POST("stories")
+    suspend fun uploadStory(
+        @Part file: MultipartBody.Part,
+        @Part("effect") effect: RequestBody? = null
+    ): com.example.domain.model.StoryUploadResponse
+
+    @GET("sounds/{sound_id}")
+    suspend fun getSoundDetails(@Path("sound_id") soundId: String): com.example.domain.model.SoundDetailsResponse
+
     @GET("search")
     suspend fun search(
         @Query("q") query: String,
         @Query("type") type: String = "sounds",
         @Query("limit") limit: Int = 20
-    ): List<Sound>
+    ): com.example.domain.model.SearchResponse
+
+    @GET("search")
+    suspend fun searchUsers(
+        @Query("q") query: String,
+        @Query("type") type: String = "users",
+        @Query("limit") limit: Int = 20
+    ): com.example.domain.model.UserSearchResponse
 }

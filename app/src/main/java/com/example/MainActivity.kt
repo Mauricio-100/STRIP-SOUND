@@ -47,6 +47,8 @@ import com.example.ui.screens.CreateStoryScreen
 import com.example.ui.theme.MyApplicationTheme
 import com.example.domain.model.VideoResponse
 
+import com.example.ui.screens.AudioMetadataScreen
+
 class MainActivity : ComponentActivity() {
 
     private lateinit var audioPlayerManager: AudioPlayerManager
@@ -59,9 +61,16 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
-        // Request runtime notification permission on Android 13/14+ to support media notification properly
+        // Request runtime notification & bluetooth connect permissions dynamically to support AirPods, Speakers and Media Notifications elegantly
+        val permissionsNeeded = mutableListOf<String>()
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
-            requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 101)
+            permissionsNeeded.add(android.Manifest.permission.POST_NOTIFICATIONS)
+        }
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
+            permissionsNeeded.add(android.Manifest.permission.BLUETOOTH_CONNECT)
+        }
+        if (permissionsNeeded.isNotEmpty()) {
+            requestPermissions(permissionsNeeded.toTypedArray(), 101)
         }
 
         audioPlayerManager = AudioPlayerManager(this)
@@ -132,6 +141,9 @@ class MainActivity : ComponentActivity() {
                                     onProfileClick = {
                                         navController.navigate("profile")
                                     },
+                                    onArtistClick = { userId ->
+                                        navController.navigate("profile/$userId")
+                                    },
                                     onUploadClick = {
                                         navController.navigate("upload")
                                     },
@@ -158,7 +170,8 @@ class MainActivity : ComponentActivity() {
                             }
                             composable("upload") {
                                 UploadSoundScreen(
-                                    onBack = { navController.popBackStack() }
+                                    onBack = { navController.popBackStack() },
+                                    onNavigateToAudioMetadata = { navController.navigate("audio_metadata") }
                                 )
                             }
                             composable("profile") {
@@ -191,6 +204,11 @@ class MainActivity : ComponentActivity() {
                             }
                             composable("analytics") {
                                 AnalyticsScreen(
+                                    onBack = { navController.popBackStack() }
+                                )
+                            }
+                            composable("audio_metadata") {
+                                AudioMetadataScreen(
                                     onBack = { navController.popBackStack() }
                                 )
                             }

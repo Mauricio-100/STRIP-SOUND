@@ -32,6 +32,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Verified
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.Comment
@@ -53,6 +54,7 @@ import com.example.data.local.SearchHistoryManager
 fun HomeScreen(
     onSoundClick: (Sound) -> Unit,
     onProfileClick: () -> Unit,
+    onArtistClick: (String) -> Unit,
     onUploadClick: () -> Unit,
     onStoryClick: (List<com.example.domain.model.VideoResponse>, Int) -> Unit,
     onCreateStoryClick: () -> Unit,
@@ -68,11 +70,15 @@ fun HomeScreen(
     val searchHistory by searchHistoryManager.history.collectAsState()
     
     var searchResults by remember { mutableStateOf<List<Sound>?>(null) }
+    var searchCreatorsResults by remember { mutableStateOf<List<com.example.domain.model.UserResponse>?>(null) }
+    var searchMetadata by remember { mutableStateOf<com.example.domain.model.SearchMetadata?>(null) }
 
     LaunchedEffect(searchQuery, isSearchActive) {
         if (searchQuery.length >= 2 && !isSearchActive) {
             try {
-                searchResults = NetworkModule.api.search(searchQuery, "sounds", 20)
+                val response = NetworkModule.api.search(searchQuery, "sounds", 20)
+                searchResults = response.results
+                searchMetadata = response.metadata
             } catch (e: Exception) {
                 e.printStackTrace()
                 // Default to local filtering on error
@@ -83,8 +89,16 @@ fun HomeScreen(
                     sound.author_username?.contains(searchQuery, ignoreCase = true) == true
                 }
             }
+            try {
+                val usersResp = NetworkModule.api.searchUsers(searchQuery, "users", 20)
+                searchCreatorsResults = usersResp.results
+            } catch (e: Exception) {
+                e.printStackTrace()
+                searchCreatorsResults = emptyList()
+            }
         } else {
             searchResults = null
+            searchCreatorsResults = null
         }
     }
 
@@ -119,74 +133,8 @@ fun HomeScreen(
                         created_at = story.created_at
                     )
                 }
-                if (storyVideos.isEmpty()) {
-                    storyVideos = listOf(
-                        com.example.domain.model.VideoResponse(
-                            id = "s1",
-                            video_url = "https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?auto=format&fit=crop&w=800&q=80",
-                            thumbnail_url = "https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?auto=format&fit=crop&w=800&q=80",
-                            description = "Chapeau l'artiste ! Découvrez mon dernier morceau de Rumba congolaise.",
-                            user_id = "u1",
-                            username = "Fally_Ipupa",
-                            avatar_url = "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=100&q=80",
-                            is_verified = true
-                        ),
-                        com.example.domain.model.VideoResponse(
-                            id = "s2",
-                            video_url = "https://images.unsplash.com/photo-1514525253161-7a46d19cd819?auto=format&fit=crop&w=800&q=80",
-                            thumbnail_url = "https://images.unsplash.com/photo-1514525253161-7a46d19cd819?auto=format&fit=crop&w=800&q=80",
-                            description = "Nouveau beat Afro-fusion disponible aujourd'hui !",
-                            user_id = "u2",
-                            username = "Koffi_M",
-                            avatar_url = "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=100&q=80",
-                            is_verified = true
-                        ),
-                        com.example.domain.model.VideoResponse(
-                            id = "s3",
-                            video_url = "https://images.unsplash.com/photo-1470225620780-dba8ba36b745?auto=format&fit=crop&w=800&q=80",
-                            thumbnail_url = "https://images.unsplash.com/photo-1470225620780-dba8ba36b745?auto=format&fit=crop&w=800&q=80",
-                            description = "Nouvel Amapiano mix à écouter à fond !",
-                            user_id = "u3",
-                            username = "DJ_Flex",
-                            avatar_url = "https://images.unsplash.com/photo-1492562080023-ab3db95bfbce?auto=format&fit=crop&w=100&q=80",
-                            is_verified = true
-                        )
-                    )
-                }
             } catch (e: Exception) {
                 e.printStackTrace()
-                storyVideos = listOf(
-                    com.example.domain.model.VideoResponse(
-                        id = "s1",
-                        video_url = "https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?auto=format&fit=crop&w=800&q=80",
-                        thumbnail_url = "https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?auto=format&fit=crop&w=800&q=80",
-                        description = "Chapeau l'artiste ! Découvrez mon dernier morceau de Rumba congolaise.",
-                        user_id = "u1",
-                        username = "Fally_Ipupa",
-                        avatar_url = "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=100&q=80",
-                        is_verified = true
-                    ),
-                    com.example.domain.model.VideoResponse(
-                        id = "s2",
-                        video_url = "https://images.unsplash.com/photo-1514525253161-7a46d19cd819?auto=format&fit=crop&w=800&q=80",
-                        thumbnail_url = "https://images.unsplash.com/photo-1514525253161-7a46d19cd819?auto=format&fit=crop&w=800&q=80",
-                        description = "Nouveau beat Afro-fusion disponible aujourd'hui !",
-                        user_id = "u2",
-                        username = "Koffi_M",
-                        avatar_url = "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=100&q=80",
-                        is_verified = true
-                    ),
-                    com.example.domain.model.VideoResponse(
-                        id = "s3",
-                        video_url = "https://images.unsplash.com/photo-1470225620780-dba8ba36b745?auto=format&fit=crop&w=800&q=80",
-                        thumbnail_url = "https://images.unsplash.com/photo-1470225620780-dba8ba36b745?auto=format&fit=crop&w=800&q=80",
-                        description = "Nouvel Amapiano mix à écouter à fond !",
-                        user_id = "u3",
-                        username = "DJ_Flex",
-                        avatar_url = "https://images.unsplash.com/photo-1492562080023-ab3db95bfbce?auto=format&fit=crop&w=100&q=80",
-                        is_verified = true
-                    )
-                )
             } finally {
                 isLoading = false
             }
@@ -417,6 +365,66 @@ fun HomeScreen(
                             modifier = Modifier.padding(16.dp),
                             fontWeight = FontWeight.Bold
                         )
+                        if (searchQuery.isNotEmpty() && !isSearchActive && searchMetadata?.agent_signature != null) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp, vertical = 8.dp)
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(Color(0xFF06B6D4).copy(alpha = 0.1f))
+                                    .padding(12.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Verified,
+                                    contentDescription = "Agent",
+                                    tint = if (searchMetadata?.is_verified_agent == true) Color(0xFF06B6D4) else Color.Gray,
+                                    modifier = Modifier.size(24.dp)
+                                )
+                                Spacer(modifier = Modifier.width(12.dp))
+                                Column {
+                                    Text(
+                                        text = searchMetadata?.agent_signature ?: "",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color.White
+                                    )
+                                    Text(
+                                        text = "Powered by Strip AI",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = Color.LightGray
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    item {
+                        if (searchQuery.isNotEmpty() && !isSearchActive && !searchCreatorsResults.isNullOrEmpty()) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(bottom = 16.dp)
+                            ) {
+                                Text(
+                                    text = "Créateurs & Artistes Vérifiés 🌟",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    modifier = Modifier.padding(start = 16.dp, top = 8.dp, bottom = 12.dp),
+                                    color = Color(0xFF00FFCC),
+                                    fontWeight = FontWeight.Black
+                                )
+                                
+                                LazyRow(
+                                    contentPadding = PaddingValues(horizontal = 16.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    items(searchCreatorsResults!!) { creator ->
+                                        CreatorSearchCard(creator = creator, onNavigateToProfile = onArtistClick)
+                                    }
+                                }
+                            }
+                        }
                     }
 
                     items(filteredSounds) { sound ->
@@ -539,16 +547,15 @@ fun SoundItem(sound: Sound, onClick: () -> Unit) {
                     label = "likeScale"
                 )
                 Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clickable { 
-                    val wasLiked = isLiked
-                    isLiked = !isLiked
-                    if (isLiked) likesCount++ else likesCount--
                     coroutineScope.launch {
                         try {
-                            NetworkModule.api.likeSound(sound.id)
+                            val response = NetworkModule.api.likeSound(sound.id)
+                            isLiked = response.liked
+                            // Query sound details to sync current actual count
+                            val details = NetworkModule.api.getSoundDetails(sound.id)
+                            likesCount = details.sound.likes_count
                         } catch (e: Exception) {
                             e.printStackTrace()
-                            isLiked = wasLiked
-                            if (isLiked) likesCount++ else likesCount--
                         }
                     }
                 }.padding(8.dp)) {
@@ -578,6 +585,182 @@ fun SoundItem(sound: Sound, onClick: () -> Unit) {
                     Icon(Icons.Default.Share, contentDescription = "Share", tint = Color.Gray, modifier = Modifier.size(18.dp))
                     Spacer(modifier = Modifier.width(4.dp))
                     Text("Partager", color = Color.Gray, style = MaterialTheme.typography.labelMedium)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun CreatorSearchCard(
+    creator: com.example.domain.model.UserResponse,
+    onNavigateToProfile: (String) -> Unit
+) {
+    var isFollowingState by remember { mutableStateOf(creator.is_following) }
+    var followersCountState by remember { mutableStateOf(creator.followers_count) }
+    val scope = rememberCoroutineScope()
+
+    Card(
+        modifier = Modifier
+            .width(220.dp)
+            .height(220.dp)
+            .clickable { onNavigateToProfile(creator.id) }
+            .border(
+                border = androidx.compose.foundation.BorderStroke(
+                    1.dp, 
+                    androidx.compose.ui.graphics.Brush.horizontalGradient(
+                        colors = listOf(Color(0xFF00FFCC), Color(0xFF06B6D4))
+                    )
+                ),
+                shape = RoundedCornerShape(20.dp)
+            ),
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF131A26))
+    ) {
+         Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(14.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.SpaceBetween
+        ) {
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                // Centered avatar
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    AsyncImage(
+                        model = creator.avatar_url ?: "https://api.dicebear.com/7.x/avataaars/png?seed=${creator.username}",
+                        contentDescription = "Avatar",
+                        modifier = Modifier
+                            .size(56.dp)
+                            .clip(CircleShape)
+                            .background(Color(0x1AFFFFFF), CircleShape)
+                            .border(1.5.dp, Color(0xFF00FFCC), CircleShape),
+                        contentScale = ContentScale.Crop
+                    )
+                }
+
+                // Follow button top left (consuming click to avoid navigating card)
+                IconButton(
+                    onClick = {
+                        scope.launch {
+                            try {
+                                if (isFollowingState) {
+                                    com.example.data.remote.NetworkModule.api.unfollowUser(creator.id)
+                                    isFollowingState = false
+                                    followersCountState = (followersCountState - 1).coerceAtLeast(0)
+                                } else {
+                                    com.example.data.remote.NetworkModule.api.followUser(creator.id)
+                                    isFollowingState = true
+                                    followersCountState++
+                                }
+                            } catch (e: Exception) {
+                                e.printStackTrace()
+                            }
+                        }
+                    },
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .size(28.dp)
+                        .clip(CircleShape)
+                        .background(
+                            if (isFollowingState) Color(0xFF00FFCC).copy(alpha = 0.25f)
+                            else Color.White.copy(alpha = 0.1f)
+                        )
+                ) {
+                    Icon(
+                        imageVector = if (isFollowingState) Icons.Default.Check else Icons.Default.Add,
+                        contentDescription = "Suivre",
+                        tint = if (isFollowingState) Color(0xFF00FFCC) else Color.White,
+                        modifier = Modifier.size(14.dp)
+                    )
+                }
+
+                // Verified check top right
+                if (creator.is_verified) {
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .clip(CircleShape)
+                            .background(Color(0xFF06B6D4).copy(alpha = 0.2f))
+                            .padding(4.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Verified,
+                            contentDescription = "Vérifié",
+                            tint = Color(0xFF06B6D4),
+                            modifier = Modifier.size(12.dp)
+                        )
+                    }
+                }
+            }
+            
+            // Name & Bio
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(
+                    text = creator.username,
+                    color = Color.White,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 14.sp,
+                    maxLines = 1
+                )
+                
+                Text(
+                    text = creator.bio ?: "Aucune biographie disponible pour ce créateur.",
+                    color = Color.LightGray.copy(alpha = 0.6f),
+                    fontSize = 11.sp,
+                    maxLines = 2,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                    modifier = Modifier.padding(top = 4.dp, start = 4.dp, end = 4.dp)
+                )
+            }
+            
+            // Metrics row
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(Color(0x0AFFFFFF))
+                    .padding(vertical = 4.dp, horizontal = 8.dp),
+                horizontalArrangement = Arrangement.SpaceEvenly,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(
+                        text = "$followersCountState",
+                        color = Color(0xFF00FFCC),
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 12.sp
+                    )
+                    Text(
+                        text = "Abonnés",
+                        color = Color.Gray,
+                        fontSize = 9.sp
+                    )
+                }
+                Box(
+                    modifier = Modifier
+                        .height(18.dp)
+                        .width(1.dp)
+                        .background(Color.White.copy(alpha = 0.1f))
+                )
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(
+                        text = "${creator.total_sounds}",
+                        color = Color.White,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 12.sp
+                    )
+                    Text(
+                        text = "Audios",
+                        color = Color.Gray,
+                        fontSize = 9.sp
+                    )
                 }
             }
         }

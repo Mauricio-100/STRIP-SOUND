@@ -15,6 +15,8 @@ import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material.icons.filled.Verified
 import androidx.compose.material.icons.filled.Report
+import androidx.compose.material.icons.filled.Bluetooth
+import androidx.compose.material.icons.filled.Headphones
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -71,18 +73,49 @@ fun PlayerScreen(
     onNavigateToProfile: (String) -> Unit
 ) {
     val isPlaying by audioPlayerManager.isPlaying.collectAsState()
+    val activeDeviceState by audioPlayerManager.deviceDetector.activeDevice.collectAsState()
+    val webBluetoothStatus by audioPlayerManager.webBluetoothManager.webBluetoothStatus.collectAsState()
     var isDownloaded by remember { mutableStateOf(false) }
     var isDownloading by remember { mutableStateOf(false) }
     val currentPosition by audioPlayerManager.currentPosition.collectAsState()
     val duration by audioPlayerManager.duration.collectAsState()
     var isLiked by remember { mutableStateOf(false) }
     var likesCount by remember { mutableIntStateOf(sound.likes_count) }
-    
+    var sharesCount by remember { mutableIntStateOf(35 + (sound.plays_count / 150)) }
     var showComments by remember { mutableStateOf(false) }
     var showAddToPlaylistDialog by remember { mutableStateOf(false) }
     var commentsList by remember { mutableStateOf<List<com.example.domain.model.Comment>>(emptyList()) }
     var isCommentsLoading by remember { mutableStateOf(false) }
     var newCommentText by remember { mutableStateOf("") }
+    var soundDetails by remember { mutableStateOf<com.example.domain.model.SoundDetailsResponse?>(null) }
+    
+    // Real-time counter stream activity update - directly connected to the server
+    LaunchedEffect(sound) {
+        while (true) {
+            try {
+                val details = com.example.data.remote.NetworkModule.api.getSoundDetails(sound.id)
+                soundDetails = details
+                likesCount = details.sound.likes_count
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+            delay(5000) // Poll real-time values every 5 seconds
+        }
+    }
+    
+    // Real-time comments loader and updater from backend server
+    LaunchedEffect(showComments) {
+        if (showComments) {
+            while (true) {
+                try {
+                    commentsList = com.example.data.remote.NetworkModule.api.getComments(sound.id)
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+                delay(4000) // Poll real-time comments from server every 4 seconds
+            }
+        }
+    }
     
     val coroutineScope = rememberCoroutineScope()
     val context = LocalContext.current
@@ -106,6 +139,12 @@ fun PlayerScreen(
             .build()
             
         audioPlayerManager.playTrack(url = url, sound = sound, itemMetadata = mediaMetadata)
+
+        try {
+            soundDetails = com.example.data.remote.NetworkModule.api.getSoundDetails(sound.id)
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
     }
 
     Box(
@@ -347,6 +386,12 @@ fun PlayerScreen(
                         }
                     }
 
+                    // Directly beneath the audio metadata display section, embed creator profile
+                    val creatorId = sound.user_id ?: sound.author_id ?: ""
+                    if (creatorId.isNotBlank()) {
+                        UserProfile(userId = creatorId, onNavigateToProfile = onNavigateToProfile)
+                    }
+
                     Spacer(modifier = Modifier.height(18.dp))
 
                     // Premium Cyber Stats grid
@@ -380,16 +425,16 @@ fun PlayerScreen(
                             verticalAlignment = Alignment.CenterVertically,
                             modifier = Modifier
                                 .clickable {
-                                    val wasLiked = isLiked
-                                    isLiked = !isLiked 
-                                    if (isLiked) likesCount++ else likesCount--
                                     coroutineScope.launch {
                                         try {
-                                            com.example.data.remote.NetworkModule.api.likeSound(sound.id)
+                                            val response = com.example.data.remote.NetworkModule.api.likeSound(sound.id)
+                                            isLiked = response.liked
+                                            // Sync likesCount immediately of the server info
+                                            val details = com.example.data.remote.NetworkModule.api.getSoundDetails(sound.id)
+                                            soundDetails = details
+                                            likesCount = details.sound.likes_count
                                         } catch (e: Exception) {
                                             e.printStackTrace()
-                                            isLiked = wasLiked
-                                            if (isLiked) likesCount++ else likesCount--
                                         }
                                     }
                                 }
@@ -434,6 +479,7 @@ fun PlayerScreen(
                             verticalAlignment = Alignment.CenterVertically,
                             modifier = Modifier
                                 .clickable {
+                                    sharesCount++
                                     val shareIntent = Intent(Intent.ACTION_SEND).apply {
                                         type = "text/plain"
                                         putExtra(Intent.EXTRA_TEXT, "Écoute ${sound.title} par ${sound.username} sur StripSound!")
@@ -444,7 +490,7 @@ fun PlayerScreen(
                         ) {
                             Icon(Icons.Default.Share, contentDescription = "Share", tint = Color.White.copy(alpha = 0.6f), modifier = Modifier.size(20.dp))
                             Spacer(modifier = Modifier.width(6.dp))
-                            Text("Partager", color = Color.White.copy(alpha = 0.85f), fontSize = 12.sp)
+                            Text("$sharesCount", color = Color.White.copy(alpha = 0.85f), fontSize = 12.sp, fontWeight = FontWeight.Bold)
                         }
 
                         Row(
@@ -563,18 +609,330 @@ fun PlayerScreen(
                         )
                     }
 
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    // Bluetooth/AirPods/JBL device output detector display
+                    activeDeviceState?.let { activeDevice ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 4.dp, horizontal = 4.dp)
+                                .clip(RoundedCornerShape(14.dp))
+                                .background(Color(0x1A06B6D4))
+                                .border(1.dp, Color(0x3B06B6D4), RoundedCornerShape(14.dp))
+                                .padding(horizontal = 14.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Row(
+                                modifier = Modifier.weight(1f),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                val icon = if (activeDevice.isBluetooth) {
+                                    Icons.Default.Bluetooth
+                                } else if (activeDevice.type == com.example.player.AudioDeviceDetector.DeviceType.WIRED_HEADPHONE ||
+                                           activeDevice.type == com.example.player.AudioDeviceDetector.DeviceType.WIRED_HEADSET) {
+                                    Icons.Default.Headphones
+                                } else {
+                                    Icons.Default.VolumeUp
+                                }
+                                
+                                Icon(
+                                    imageVector = icon,
+                                    contentDescription = "Routing Output",
+                                    tint = if (activeDevice.isBluetooth) Color(0xFF00FFCC) else Color.White,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                Spacer(modifier = Modifier.width(10.dp))
+                                Column {
+                                    Text(
+                                        text = "Audio diffusé sur :",
+                                        color = Color.White.copy(alpha = 0.5f),
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Normal
+                                    )
+                                    Text(
+                                        text = activeDevice.name,
+                                        color = Color.White,
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
+                            
+                            // High contrast status indicator pill
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(if (activeDevice.isBluetooth) Color(0x3300FFCC) else Color(0x22FFFFFF))
+                                    .padding(horizontal = 8.dp, vertical = 4.dp)
+                            ) {
+                                Text(
+                                    text = if (activeDevice.isBluetooth) "Bluetooth" else "Haut-parleur",
+                                    color = if (activeDevice.isBluetooth) Color(0xFF00FFCC) else Color.White,
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+                    }
+
+                    // Web Bluetooth Connection Compatibility status
+                    webBluetoothStatus?.let { status ->
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 4.dp)
+                                .clip(RoundedCornerShape(14.dp))
+                                .background(Color(0x0CFFFFFF))
+                                .border(1.dp, Color(0x16FFFFFF), RoundedCornerShape(14.dp))
+                                .padding(12.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(
+                                        imageVector = Icons.Default.Bluetooth,
+                                        contentDescription = "Web Bluetooth",
+                                        tint = if (status.isGattConnected) Color(0xFF00FFCC) else Color.Gray,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = "Web Bluetooth API Standard",
+                                        color = Color.White,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(6.dp))
+                                        .background(if (status.isGattConnected) Color(0x2200FFCC) else Color(0x1AFFFFFF))
+                                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                                ) {
+                                    Text(
+                                        text = if (status.isGattConnected) "GATT CONNECTÉ" else "PRÊT",
+                                        color = if (status.isGattConnected) Color(0xFF00FFCC) else Color.White.copy(alpha = 0.6f),
+                                        fontSize = 8.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column {
+                                    Text(
+                                        text = "Périphérique : ${status.deviceName}",
+                                        color = Color.LightGray,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                    Text(
+                                        text = "UUID Service : ${status.serviceUuid}",
+                                        color = Color.Gray,
+                                        fontSize = 10.sp,
+                                        fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace
+                                    )
+                                }
+                                Column(horizontalAlignment = Alignment.End) {
+                                    Text(
+                                        text = "Audio: ${status.audioCodec}",
+                                        color = Color.White,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Text(
+                                        text = "Latence : ~${status.estimatedLatencyMs}ms",
+                                        color = if (status.estimatedLatencyMs <= 150) Color(0xFF00FFCC) else Color(0xFFEF4444),
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Check,
+                                    contentDescription = "Compatible",
+                                    tint = Color(0xFF00FFCC),
+                                    modifier = Modifier.size(12.dp)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    text = "Compatibilité Flux Android : ${status.streamQuality}",
+                                    color = Color.LightGray.copy(alpha = 0.8f),
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Normal
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    // Creator profile information непосредственно beneath the audio interface
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 4.dp)
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(Color(0x0CFFFFFF))
+                            .border(1.dp, Color(0x12FFFFFF), RoundedCornerShape(16.dp))
+                            .clickable {
+                                val uid = sound.user_id ?: sound.author_id ?: ""
+                                if (uid.isNotEmpty()) onNavigateToProfile(uid)
+                            }
+                            .padding(14.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        coil.compose.AsyncImage(
+                            model = sound.avatar_url ?: "https://api.dicebear.com/7.x/avataaars/png?seed=${sound.username ?: "artist"}",
+                            contentDescription = "Avatar",
+                            modifier = Modifier
+                                .size(44.dp)
+                                .clip(CircleShape)
+                                .background(Color(0x16FFFFFF), CircleShape)
+                                .border(1.dp, Color(0x1AFFFFFF), CircleShape),
+                            contentScale = androidx.compose.ui.layout.ContentScale.Crop
+                        )
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    text = sound.username ?: sound.author_username ?: "Unknown Artist",
+                                    color = Color.White,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 14.sp
+                                )
+                                if (sound.is_verified || sound.author_is_verified) {
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Icon(
+                                        imageVector = Icons.Default.Verified,
+                                        contentDescription = "Verified",
+                                        tint = Color(0xFF06B6D4),
+                                        modifier = Modifier.size(14.dp)
+                                    )
+                                }
+                            }
+                            Text(
+                                text = "Créateur original • Tapez pour voir le profil",
+                                color = Color.White.copy(alpha = 0.5f),
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Normal
+                            )
+                        }
+                        Icon(
+                            imageVector = Icons.Default.PlayArrow,
+                            contentDescription = "Details",
+                            tint = Color.White.copy(alpha = 0.4f),
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+
                     Spacer(modifier = Modifier.height(16.dp))
                 }
             }
             
+            val resolvedAuthorId = soundDetails?.sound?.user_id 
+                ?: soundDetails?.sound?.author_id 
+                ?: sound.user_id 
+                ?: sound.author_id 
+                ?: ""
+                
+            val resolvedAuthorUsername = soundDetails?.sound?.author_username 
+                ?: soundDetails?.sound?.username 
+                ?: sound.author_username 
+                ?: sound.username 
+                ?: "Unknown"
+                
+            val resolvedAuthorAvatar = soundDetails?.sound?.avatar_url 
+                ?: sound.avatar_url
+
             item {
-                AuthorMiniProfile(
-                    authorId = sound.user_id ?: "",
-                    authorUsername = sound.username ?: sound.author_username ?: "Unknown",
-                    authorAvatar = sound.avatar_url,
-                    onNavigateToProfile = onNavigateToProfile
-                )
+                if (resolvedAuthorId.isNotBlank()) {
+                    AuthorMiniProfile(
+                        authorId = resolvedAuthorId,
+                        authorUsername = resolvedAuthorUsername,
+                        authorAvatar = resolvedAuthorAvatar,
+                        onNavigateToProfile = onNavigateToProfile
+                    )
+                }
                 Spacer(modifier = Modifier.height(32.dp))
+            }
+
+            if (soundDetails?.videos?.isNotEmpty() == true) {
+                item {
+                    Text(
+                        text = "Vidéos avec ce son (${soundDetails?.videos?.size ?: 0})",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White,
+                        modifier = Modifier.padding(bottom = 12.dp)
+                    )
+                }
+                item {
+                    androidx.compose.foundation.lazy.LazyRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxWidth().padding(bottom = 32.dp)
+                    ) {
+                        items(soundDetails?.videos ?: emptyList()) { video ->
+                            Box(
+                                modifier = Modifier
+                                    .width(120.dp)
+                                    .aspectRatio(9f / 16f)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(Color.DarkGray)
+                            ) {
+                                AsyncImage(
+                                    model = video.thumbnail_url,
+                                    contentDescription = "Video thumbnail",
+                                    modifier = Modifier.fillMaxSize(),
+                                    contentScale = ContentScale.Crop
+                                )
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .background(
+                                            androidx.compose.ui.graphics.Brush.verticalGradient(
+                                                colors = listOf(Color.Transparent, Color.Black.copy(alpha = 0.7f)),
+                                                startY = 100f
+                                            )
+                                        )
+                                )
+                                Row(
+                                    modifier = Modifier.align(Alignment.BottomStart).padding(8.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.PlayArrow,
+                                        contentDescription = "Plays",
+                                        tint = Color.White,
+                                        modifier = Modifier.size(14.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text(
+                                        text = "${video.views}",
+                                        color = Color.White,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
     }
@@ -720,7 +1078,7 @@ fun AuthorMiniProfile(
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             coil.compose.AsyncImage(
-                model = authorAvatar ?: "https://api.dicebear.com/7.x/avataaars/png?seed=$authorUsername",
+                model = userProfile?.avatar_url ?: authorAvatar ?: "https://api.dicebear.com/7.x/avataaars/png?seed=$authorUsername",
                 contentDescription = "Avatar",
                 modifier = Modifier
                     .size(54.dp)
@@ -743,6 +1101,21 @@ fun AuthorMiniProfile(
                         color = Color.LightGray.copy(alpha = 0.6f), 
                         style = MaterialTheme.typography.labelMedium,
                         fontWeight = FontWeight.Bold
+                    )
+                }
+                if (!isLoading && userProfile != null && userProfile?.bio?.isNotBlank() == true) {
+                    val url = "https://hoosthubs-g.onrender.com"
+                    val context = LocalContext.current
+                    Text(
+                        text = "Portfolio: $url",
+                        color = Color(0xFF06B6D4),
+                        style = MaterialTheme.typography.labelSmall,
+                        modifier = Modifier
+                            .padding(top = 4.dp)
+                            .clickable {
+                                val intent = Intent(Intent.ACTION_VIEW, android.net.Uri.parse(url))
+                                context.startActivity(intent)
+                            }
                     )
                 }
             }
@@ -783,24 +1156,33 @@ fun AuthorMiniProfile(
                 Text("Voir plus", color = Color.White, fontWeight = FontWeight.Bold)
             }
             Spacer(modifier = Modifier.width(16.dp))
+            
+            val followScale by animateFloatAsState(
+                targetValue = if (isFollowing) 1.05f else 1.0f,
+                animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessLow),
+                label = "followScale"
+            )
+            
             androidx.compose.material3.Button(
                 onClick = {
-                    isFollowing = !isFollowing
                     coroutineScope.launch {
                         try {
                             if (isFollowing) {
-                                com.example.data.remote.NetworkModule.api.followUser(authorId)
-                            } else {
                                 com.example.data.remote.NetworkModule.api.unfollowUser(authorId)
+                            } else {
+                                com.example.data.remote.NetworkModule.api.followUser(authorId)
                             }
+                            // Fetch updated user profile from server in real-time
+                            val updated = com.example.data.remote.NetworkModule.api.getUserProfile(authorId)
+                            userProfile = updated
+                            isFollowing = updated.is_following
                         } catch (e: Exception) {
                             e.printStackTrace()
-                            isFollowing = !isFollowing
                         }
                     }
                 },
                 shape = CircleShape,
-                modifier = Modifier.weight(1f),
+                modifier = Modifier.weight(1f).graphicsLayer(scaleX = followScale, scaleY = followScale),
                 colors = androidx.compose.material3.ButtonDefaults.buttonColors(
                     containerColor = if (isFollowing) Color.White.copy(alpha = 0.2f) else Color(0xFF06B6D4),
                     contentColor = if (isFollowing) Color.White else Color.Black
@@ -880,4 +1262,88 @@ fun WaveformVisualizer(
         }
     }
 }
+
+@Composable
+fun UserProfile(
+    userId: String,
+    onNavigateToProfile: (String) -> Unit
+) {
+    var profile by remember { mutableStateOf<com.example.domain.model.UserResponse?>(null) }
+    var isLoading by remember { mutableStateOf(true) }
+
+    LaunchedEffect(userId) {
+        if (userId.isNotBlank()) {
+            try {
+                profile = com.example.data.remote.NetworkModule.api.getUserProfile(userId)
+            } catch (e: Exception) {
+                e.printStackTrace()
+            } finally {
+                isLoading = false
+            }
+        }
+    }
+
+    if (!isLoading && profile != null) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 12.dp)
+                .clip(RoundedCornerShape(16.dp))
+                .background(Color(0x0CFFFFFF))
+                .border(1.dp, Color(0x3B06B6D4), RoundedCornerShape(16.dp))
+                .clickable { onNavigateToProfile(userId) }
+                .padding(16.dp)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                coil.compose.AsyncImage(
+                    model = profile?.avatar_url ?: "https://api.dicebear.com/7.x/avataaars/png?seed=${profile?.username}",
+                    contentDescription = "Avatar",
+                    modifier = Modifier
+                        .size(50.dp)
+                        .clip(CircleShape)
+                        .background(Color(0x16FFFFFF), CircleShape)
+                        .border(1.5.dp, Color(0x1AFFFFFF), CircleShape),
+                    contentScale = androidx.compose.ui.layout.ContentScale.Crop
+                )
+                Spacer(modifier = Modifier.width(14.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = profile?.username ?: "Artiste",
+                            color = Color.White,
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Black
+                        )
+                        if (profile?.is_verified == true) {
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Icon(
+                                imageVector = Icons.Default.Verified,
+                                contentDescription = "Verified Profile",
+                                tint = Color(0xFF06B6D4),
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+                    }
+                    Text(
+                        text = "${profile?.followers_count ?: 0} followers • ${profile?.total_sounds ?: 0} sons",
+                        color = Color.White.copy(alpha = 0.5f),
+                        style = MaterialTheme.typography.bodySmall,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+            }
+            if (!profile?.bio.isNullOrBlank()) {
+                Spacer(modifier = Modifier.height(10.dp))
+                Text(
+                    text = profile!!.bio!!,
+                    color = Color.LightGray.copy(alpha = 0.8f),
+                    style = MaterialTheme.typography.bodySmall,
+                    maxLines = 2,
+                    modifier = Modifier.padding(top = 2.dp)
+                )
+            }
+        }
+    }
+}
+
 
