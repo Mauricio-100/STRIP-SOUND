@@ -155,7 +155,8 @@ class MainActivity : ComponentActivity() {
                                     onCreateStoryClick = {
                                         navController.navigate("create_story")
                                     },
-                                    searchHistoryManager = searchHistoryManager
+                                    searchHistoryManager = searchHistoryManager,
+                                    authManager = authManager
                                 )
                             }
                             composable("create_story") {
@@ -243,6 +244,7 @@ class MainActivity : ComponentActivity() {
                                 audioPlayerManager = audioPlayerManager,
                                 audioDownloader = audioDownloader,
                                 appDatabase = appDatabase,
+                                authManager = authManager,
                                 onClose = { showPlayer = false },
                                 onNavigateToProfile = { userId ->
                                     showPlayer = false

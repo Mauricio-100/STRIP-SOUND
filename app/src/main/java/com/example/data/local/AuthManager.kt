@@ -43,6 +43,14 @@ class AuthManager(context: Context) {
     fun getEmail(userId: String): String = prefs.getString("email_$userId", "") ?: ""
     fun getDob(userId: String): String = prefs.getString("dob_$userId", "") ?: ""
 
+    fun setSoundLiked(soundId: String, isLiked: Boolean) {
+        prefs.edit()
+            .putBoolean("sound_liked_$soundId", isLiked)
+            .apply()
+    }
+
+    fun isSoundLiked(soundId: String): Boolean = prefs.getBoolean("sound_liked_$soundId", false)
+
     fun clear() {
         prefs.edit().clear().apply()
         _isLoggedIn.value = false

@@ -64,30 +64,31 @@ class AudioDeviceDetector(context: Context) {
             val bluetoothNames = mutableListOf<String>()
 
             for (device in outputs) {
+                val deviceTypeInt = device.type
                 var deviceName = device.productName?.toString() ?: "Device"
                 if (deviceName.isBlank() || deviceName == "Device") {
-                    deviceName = when (device.type) {
-                        AudioDeviceInfo.TYPE_BLUETOOTH_A2DP -> "Écouteurs Bluetooth"
-                        AudioDeviceInfo.TYPE_BLUETOOTH_SCO -> "Casque Bluetooth"
-                        AudioDeviceInfo.TYPE_BLE_HEADSET -> "Audio BLE"
-                        AudioDeviceInfo.TYPE_BLE_SPEAKER -> "Enceinte BLE"
-                        AudioDeviceInfo.TYPE_WIRED_HEADPHONES -> "Casque filaire"
-                        AudioDeviceInfo.TYPE_WIRED_HEADSET -> "Écouteurs filaires"
-                        AudioDeviceInfo.TYPE_BUILTIN_SPEAKER -> "Haut-parleur externe"
-                        AudioDeviceInfo.TYPE_BUILTIN_EARPIECE -> "Haut-parleur interne"
+                    deviceName = when {
+                        deviceTypeInt == AudioDeviceInfo.TYPE_BLUETOOTH_A2DP -> "Écouteurs Bluetooth"
+                        deviceTypeInt == AudioDeviceInfo.TYPE_BLUETOOTH_SCO -> "Casque Bluetooth"
+                        Build.VERSION.SDK_INT >= 31 && deviceTypeInt == 26 -> "Audio BLE" // TYPE_BLE_HEADSET
+                        Build.VERSION.SDK_INT >= 31 && deviceTypeInt == 27 -> "Enceinte BLE" // TYPE_BLE_SPEAKER
+                        deviceTypeInt == AudioDeviceInfo.TYPE_WIRED_HEADPHONES -> "Casque filaire"
+                        deviceTypeInt == AudioDeviceInfo.TYPE_WIRED_HEADSET -> "Écouteurs filaires"
+                        deviceTypeInt == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER -> "Haut-parleur externe"
+                        deviceTypeInt == AudioDeviceInfo.TYPE_BUILTIN_EARPIECE -> "Haut-parleur interne"
                         else -> "Sortie Audio"
                     }
                 }
 
-                val type = when (device.type) {
-                    AudioDeviceInfo.TYPE_BLUETOOTH_A2DP -> DeviceType.BLUETOOTH_A2DP
-                    AudioDeviceInfo.TYPE_BLUETOOTH_SCO -> DeviceType.BLUETOOTH_SCO
-                    AudioDeviceInfo.TYPE_BLE_HEADSET -> DeviceType.BLE_HEADSET
-                    AudioDeviceInfo.TYPE_BLE_SPEAKER -> DeviceType.BLE_SPEAKER
-                    AudioDeviceInfo.TYPE_WIRED_HEADPHONES -> DeviceType.WIRED_HEADPHONE
-                    AudioDeviceInfo.TYPE_WIRED_HEADSET -> DeviceType.WIRED_HEADSET
-                    AudioDeviceInfo.TYPE_BUILTIN_SPEAKER -> DeviceType.BUILTIN_SPEAKER
-                    AudioDeviceInfo.TYPE_BUILTIN_EARPIECE -> DeviceType.BUILTIN_EARPIECE
+                val type = when {
+                    deviceTypeInt == AudioDeviceInfo.TYPE_BLUETOOTH_A2DP -> DeviceType.BLUETOOTH_A2DP
+                    deviceTypeInt == AudioDeviceInfo.TYPE_BLUETOOTH_SCO -> DeviceType.BLUETOOTH_SCO
+                    Build.VERSION.SDK_INT >= 31 && deviceTypeInt == 26 -> DeviceType.BLE_HEADSET // TYPE_BLE_HEADSET
+                    Build.VERSION.SDK_INT >= 31 && deviceTypeInt == 27 -> DeviceType.BLE_SPEAKER // TYPE_BLE_SPEAKER
+                    deviceTypeInt == AudioDeviceInfo.TYPE_WIRED_HEADPHONES -> DeviceType.WIRED_HEADPHONE
+                    deviceTypeInt == AudioDeviceInfo.TYPE_WIRED_HEADSET -> DeviceType.WIRED_HEADSET
+                    deviceTypeInt == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER -> DeviceType.BUILTIN_SPEAKER
+                    deviceTypeInt == AudioDeviceInfo.TYPE_BUILTIN_EARPIECE -> DeviceType.BUILTIN_EARPIECE
                     else -> DeviceType.UNKNOWN
                 }
 

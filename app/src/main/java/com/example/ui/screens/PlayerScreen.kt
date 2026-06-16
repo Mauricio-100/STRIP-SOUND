@@ -69,6 +69,7 @@ fun PlayerScreen(
     audioPlayerManager: AudioPlayerManager,
     audioDownloader: com.example.data.local.AudioDownloader,
     appDatabase: com.example.data.local.AppDatabase,
+    authManager: com.example.data.local.AuthManager,
     onClose: () -> Unit,
     onNavigateToProfile: (String) -> Unit
 ) {
@@ -79,7 +80,7 @@ fun PlayerScreen(
     var isDownloading by remember { mutableStateOf(false) }
     val currentPosition by audioPlayerManager.currentPosition.collectAsState()
     val duration by audioPlayerManager.duration.collectAsState()
-    var isLiked by remember { mutableStateOf(false) }
+    var isLiked by remember { mutableStateOf(authManager.isSoundLiked(sound.id)) }
     var likesCount by remember { mutableIntStateOf(sound.likes_count) }
     var sharesCount by remember { mutableIntStateOf(35 + (sound.plays_count / 150)) }
     var showComments by remember { mutableStateOf(false) }
@@ -429,6 +430,7 @@ fun PlayerScreen(
                                         try {
                                             val response = com.example.data.remote.NetworkModule.api.likeSound(sound.id)
                                             isLiked = response.liked
+                                            authManager.setSoundLiked(sound.id, response.liked)
                                             // Sync likesCount immediately of the server info
                                             val details = com.example.data.remote.NetworkModule.api.getSoundDetails(sound.id)
                                             soundDetails = details

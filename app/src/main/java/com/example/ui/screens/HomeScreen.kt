@@ -58,7 +58,8 @@ fun HomeScreen(
     onUploadClick: () -> Unit,
     onStoryClick: (List<com.example.domain.model.VideoResponse>, Int) -> Unit,
     onCreateStoryClick: () -> Unit,
-    searchHistoryManager: SearchHistoryManager
+    searchHistoryManager: SearchHistoryManager,
+    authManager: com.example.data.local.AuthManager
 ) {
     val coroutineScope = rememberCoroutineScope()
     var sounds by remember { mutableStateOf<List<Sound>>(emptyList()) }
@@ -428,7 +429,7 @@ fun HomeScreen(
                     }
 
                     items(filteredSounds) { sound ->
-                        SoundItem(sound = sound, onClick = { onSoundClick(sound) })
+                        SoundItem(sound = sound, authManager = authManager, onClick = { onSoundClick(sound) })
                     }
                 }
             }
@@ -437,8 +438,8 @@ fun HomeScreen(
 }
 
 @Composable
-fun SoundItem(sound: Sound, onClick: () -> Unit) {
-    var isLiked by remember { mutableStateOf(false) }
+fun SoundItem(sound: Sound, authManager: com.example.data.local.AuthManager, onClick: () -> Unit) {
+    var isLiked by remember { mutableStateOf(authManager.isSoundLiked(sound.id)) }
     var likesCount by remember { mutableIntStateOf(sound.likes_count) }
     val context = LocalContext.current
     
@@ -551,6 +552,7 @@ fun SoundItem(sound: Sound, onClick: () -> Unit) {
                         try {
                             val response = NetworkModule.api.likeSound(sound.id)
                             isLiked = response.liked
+                            authManager.setSoundLiked(sound.id, response.liked)
                             // Query sound details to sync current actual count
                             val details = NetworkModule.api.getSoundDetails(sound.id)
                             likesCount = details.sound.likes_count
