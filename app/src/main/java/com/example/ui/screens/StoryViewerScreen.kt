@@ -127,6 +127,9 @@ fun StoryViewerScreen(
         coroutineScope.launch {
             try {
                 com.example.data.remote.NetworkModule.api.likeVideo(currentStory.id)
+                if (isLiked) {
+                    com.example.util.CustomNotificationManager(context).notifyNewLike("Vous", "la story de " + currentStory.username)
+                }
             } catch (e: Exception) {
                 e.printStackTrace()
                 // Revert on failure
@@ -289,6 +292,7 @@ fun StoryViewerScreen(
                                 try {
                                     if (isFollowing) {
                                         com.example.data.remote.NetworkModule.api.followUser(currentStory.user_id)
+                                        com.example.util.CustomNotificationManager(context).notifyNewSubscription(currentStory.username ?: "un créateur")
                                     } else {
                                         com.example.data.remote.NetworkModule.api.unfollowUser(currentStory.user_id)
                                     }

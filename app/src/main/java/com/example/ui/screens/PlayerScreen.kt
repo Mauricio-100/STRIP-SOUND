@@ -431,6 +431,13 @@ fun PlayerScreen(
                                             val response = com.example.data.remote.NetworkModule.api.likeSound(sound.id)
                                             isLiked = response.liked
                                             authManager.setSoundLiked(sound.id, response.liked)
+                                            
+                                            // Trigger real native notification for Like activity
+                                            val notifMgr = com.example.util.CustomNotificationManager(context)
+                                            if (response.liked) {
+                                                notifMgr.notifyNewLike("Vous", sound.title)
+                                            }
+                                            
                                             // Sync likesCount immediately of the server info
                                             val details = com.example.data.remote.NetworkModule.api.getSoundDetails(sound.id)
                                             soundDetails = details
@@ -487,6 +494,10 @@ fun PlayerScreen(
                                         putExtra(Intent.EXTRA_TEXT, "Écoute ${sound.title} par ${sound.username} sur StripSound!")
                                     }
                                     context.startActivity(Intent.createChooser(shareIntent, "Partager via"))
+                                    
+                                    // Trigger notification for sharing
+                                    com.example.util.CustomNotificationManager(context)
+                                        .notifyNewShare("Vous", sound.title)
                                 }
                                 .padding(4.dp)
                         ) {
@@ -986,12 +997,17 @@ fun PlayerScreen(
                             if (newCommentText.isNotBlank()) {
                                 coroutineScope.launch {
                                     try {
+                                        val commentTxt = newCommentText
                                         val c = com.example.data.remote.NetworkModule.api.postComment(
                                             sound.id,
-                                            com.example.domain.model.CommentRequest(newCommentText)
+                                            com.example.domain.model.CommentRequest(commentTxt)
                                         )
                                         commentsList = commentsList + c
                                         newCommentText = ""
+                                        
+                                        // Trigger notification for commenting
+                                        com.example.util.CustomNotificationManager(context)
+                                            .notifyNewComment("Vous", commentTxt, sound.title)
                                     } catch (e: Exception) {
                                         e.printStackTrace()
                                     }

@@ -51,11 +51,19 @@ class CustomNotificationManager(private val context: Context) {
     }
 
     fun showActivityNotification(title: String, message: String) {
-        val largeIconBitmap = BitmapFactory.decodeResource(context.resources, R.drawable.strip_app_logo_1781423781920)
+        val largeIconBitmap = try {
+            BitmapFactory.decodeResource(context.resources, R.drawable.strip_app_logo_1781423781920)
+        } catch (e: Exception) {
+            null
+        }
         
         val builder = NotificationCompat.Builder(context, ACTIVITY_CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_popup_reminder)
-            .setLargeIcon(largeIconBitmap)
+            .apply {
+                if (largeIconBitmap != null) {
+                    setLargeIcon(largeIconBitmap)
+                }
+            }
             .setContentTitle(title)
             .setContentText(message)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
@@ -67,5 +75,47 @@ class CustomNotificationManager(private val context: Context) {
                 e.printStackTrace()
             }
         }
+    }
+
+    fun notifyNewStory(creatorName: String, storyTitle: String) {
+        showActivityNotification(
+            "Nouvelle Story sur STRIP SOUND 🎬",
+            "$creatorName a publié une nouvelle story : \"$storyTitle\" ! Regardez-la maintenant."
+        )
+    }
+
+    fun notifyNewSubscription(followerName: String) {
+        showActivityNotification(
+            "Nouvel Abonné 🎉",
+            "$followerName s'est abonné à votre profil. Allez voir son profil !"
+        )
+    }
+
+    fun notifyNewLike(likerName: String, itemName: String) {
+        showActivityNotification(
+            "Nouveau Like ❤️",
+            "$likerName a aimé votre création : \"$itemName\"."
+        )
+    }
+
+    fun notifyNewComment(commenterName: String, commentText: String, itemName: String) {
+        showActivityNotification(
+            "Nouveau Commentaire 💬",
+            "$commenterName a commenté votre son \"$itemName\" : \"$commentText\""
+        )
+    }
+
+    fun notifyNewShare(sharerName: String, itemName: String) {
+        showActivityNotification(
+            "Nouveau Partage 📢",
+            "$sharerName a partagé votre titre \"$itemName\" avec ses amis !"
+        )
+    }
+
+    fun notifyTenNewPlays(soundTitle: String) {
+        showActivityNotification(
+            "Record battu ! 📈",
+            "Félicitations ! Votre son \"$soundTitle\" a obtenu 10 nouvelles lectures !"
+        )
     }
 }

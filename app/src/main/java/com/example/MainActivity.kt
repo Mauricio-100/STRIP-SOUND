@@ -121,18 +121,43 @@ class MainActivity : ComponentActivity() {
                     LaunchedEffect(isLoggedIn) {
                         if (isLoggedIn) {
                             val notificationManager = com.example.util.CustomNotificationManager(context)
-                            val activities = listOf(
-                                Pair("Nouvelle Story", "Un créateur que vous suivez a publié une nouvelle story."),
-                                Pair("Nouvel Abonnement", "Marc a commencé à vous suivre."),
-                                Pair("Nouveau Like", "Quelqu'un a aimé votre création."),
-                                Pair("Nouveau Commentaire", "Julie a commenté: 'Wow, super son!'"),
-                                Pair("Nouveau Partage", "Thomas a partagé votre titre."),
-                                Pair("10 Nouvelles Lectures", "Félicitations, votre son a obtenu 10 nouvelles lectures !")
-                            )
+                            val creators = listOf("Emma", "Julien", "Lucas", "Sophie", "Lucas", "Alexandre", "Marc", "Julie", "Thomas", "Manon")
+                            val sounds = listOf("Deep Bass Drop", "Electro Chill", "Acoustic Sunset", "Summer Wave", "Strip Beat #3", "Podcast Chill")
+                            val commentsText = listOf("Wow, super son !", "Ce rythme est incroyable 🔥", "J'adore l'ambiance, propre !", "Vraiment lourd !", "Add a ma playlist direct !")
+                            
                             while (true) {
-                                kotlinx.coroutines.delay(kotlin.random.Random.nextLong(15000, 35000))
-                                val (title, message) = activities.random()
-                                notificationManager.showActivityNotification(title, message)
+                                kotlinx.coroutines.delay(kotlin.random.Random.nextLong(15000, 30000))
+                                when (kotlin.random.Random.nextInt(6)) {
+                                    0 -> {
+                                        val creator = creators.random()
+                                        val title = sounds.random()
+                                        notificationManager.notifyNewStory(creator, title)
+                                    }
+                                    1 -> {
+                                        val follower = creators.random()
+                                        notificationManager.notifyNewSubscription(follower)
+                                    }
+                                    2 -> {
+                                        val liker = creators.random()
+                                        val item = sounds.random()
+                                        notificationManager.notifyNewLike(liker, item)
+                                    }
+                                    3 -> {
+                                        val commenter = creators.random()
+                                        val comment = commentsText.random()
+                                        val item = sounds.random()
+                                        notificationManager.notifyNewComment(commenter, comment, item)
+                                    }
+                                    4 -> {
+                                        val sharer = creators.random()
+                                        val item = sounds.random()
+                                        notificationManager.notifyNewShare(sharer, item)
+                                    }
+                                    5 -> {
+                                        val title = sounds.random()
+                                        notificationManager.notifyTenNewPlays(title)
+                                    }
+                                }
                             }
                         }
                     }

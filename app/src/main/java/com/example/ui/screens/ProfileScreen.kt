@@ -365,6 +365,7 @@ fun ProfileScreen(
                                                     userProfile = userProfile?.copy(followers_count = (userProfile?.followers_count ?: 1) - 1)
                                                 } else {
                                                     NetworkModule.api.followUser(userId)
+                                                    com.example.util.CustomNotificationManager(context).notifyNewSubscription(userProfile?.username ?: "un créateur")
                                                     isFollowing = true
                                                     userProfile = userProfile?.copy(followers_count = (userProfile?.followers_count ?: 0) + 1)
                                                 }

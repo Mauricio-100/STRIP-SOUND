@@ -327,6 +327,9 @@ fun UploadSoundScreen(onBack: () -> Unit, onNavigateToAudioMetadata: () -> Unit 
                 uploadStatus = "Upload réussi ! (ID: ${response.sound_id})"
                 isUploading = false
                 
+                // Trigger native notification for the successful upload activity
+                com.example.util.CustomNotificationManager(context).notifyNewStory("Vous", title)
+                
                 audioFile.delete() // cleanup
                 
                 title = ""
