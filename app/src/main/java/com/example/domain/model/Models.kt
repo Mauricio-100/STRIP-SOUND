@@ -18,7 +18,8 @@ data class Sound(
     val avatar_url: String? = null,
     val is_verified: Boolean = false,
     val author_is_verified: Boolean = false,
-    val audio_url: String? = null // if available from recommendation vs details
+    val audio_url: String? = null, // if available from recommendation vs details
+    val duration: Float? = null
 )
 
 @JsonClass(generateAdapter = true)
@@ -51,7 +52,21 @@ data class UserResponse(
     val total_wings: Int = 0,
     val total_sounds: Int = 0,
     val total_audio_plays: Int = 0,
-    val total_audio_likes: Int = 0
+    val total_audio_likes: Int = 0,
+    val zodiac_sign: String? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class VerificationCriteria(
+    val birth_date: String
+)
+
+@JsonClass(generateAdapter = true)
+data class VerificationResult(
+    val verified: Boolean,
+    val badge: Boolean,
+    val reason: String? = null,
+    val zodiac_sign: String? = null
 )
 
 @JsonClass(generateAdapter = true)

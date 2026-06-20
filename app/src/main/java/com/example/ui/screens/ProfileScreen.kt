@@ -1,5 +1,9 @@
 package com.example.ui.screens
 
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Shadow
+import androidx.compose.foundation.border
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -14,6 +18,9 @@ import androidx.compose.material.icons.filled.Verified
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.List
+import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -82,6 +89,58 @@ fun calculateZodiacFromDob(dob: String): String {
     }
 }
 
+@Composable
+fun ZodiacBadge(sign: String, modifier: Modifier = Modifier) {
+    val (symbolLetter, color1, color2) = when (sign.lowercase()) {
+        "bélier" -> Triple("AR", Color(0xFFFF512F), Color(0xFFDD2476))
+        "taureau" -> Triple("TA", Color(0xFF56AB2F), Color(0xFFA8E063))
+        "gémeaux" -> Triple("GE", Color(0xFFFFD89B), Color(0xFF19547B))
+        "cancer" -> Triple("CA", Color(0xFFE0EAFC), Color(0xFFCFDEF3))
+        "lion" -> Triple("LE", Color(0xFFFDC830), Color(0xFFF37335))
+        "vierge" -> Triple("VI", Color(0xFF4CA1AF), Color(0xFFC4E0E5))
+        "balance" -> Triple("LI", Color(0xFF8A2387), Color(0xFFF27121))
+        "scorpion" -> Triple("SC", Color(0xFF141E30), Color(0xFF243B55))
+        "sagittaire" -> Triple("SA", Color(0xFF8E2DE2), Color(0xFF4A00E0))
+        "capricorne" -> Triple("CP", Color(0xFF3E5151), Color(0xFFDECBA4))
+        "verseau" -> Triple("AQ", Color(0xFF1D976C), Color(0xFF93F9B9))
+        "poissons" -> Triple("PI", Color(0xFF2BC0E4), Color(0xFFEAECC6))
+        else -> Triple("??", Color.Gray, Color.White)
+    }
+
+    Box(
+        modifier = modifier
+            .clip(RoundedCornerShape(12.dp))
+            .background(Brush.linearGradient(listOf(color1.copy(alpha = 0.2f), color2.copy(alpha = 0.2f))))
+            .border(1.dp, Brush.linearGradient(listOf(color1, color2)), RoundedCornerShape(12.dp))
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                modifier = Modifier
+                    .size(28.dp)
+                    .background(Brush.linearGradient(listOf(color1, color2)), CircleShape),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = symbolLetter,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Black,
+                    color = Color.White
+                )
+            }
+            Spacer(modifier = Modifier.width(10.dp))
+            Text(
+                text = sign.uppercase(),
+                fontSize = 13.sp,
+                fontWeight = FontWeight.ExtraBold,
+                color = Color.White,
+                letterSpacing = 2.sp
+            )
+        }
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ProfileScreen(
@@ -113,6 +172,51 @@ fun ProfileScreen(
     val expandedPlaylists = remember { mutableStateMapOf<String, Boolean>() }
     var showCreatePlaylistDialog by remember { mutableStateOf(false) }
     var newPlaylistName by remember { mutableStateOf("") }
+
+    // Audio Player State
+    val exoPlayer = remember { 
+        val attr = androidx.media3.common.AudioAttributes.Builder()
+            .setUsage(androidx.media3.common.C.USAGE_MEDIA)
+            .setContentType(androidx.media3.common.C.AUDIO_CONTENT_TYPE_MUSIC)
+            .build()
+        androidx.media3.exoplayer.ExoPlayer.Builder(context)
+            .setAudioAttributes(attr, false)
+            .build() 
+    }
+    var currentlyPlayingId by remember { mutableStateOf<String?>(null) }
+    var isPlaying by remember { mutableStateOf(false) }
+    var currentPosition by remember { mutableLongStateOf(0L) }
+    var trackDuration by remember { mutableLongStateOf(0L) }
+
+    DisposableEffect(Unit) {
+        val listener = object : androidx.media3.common.Player.Listener {
+            override fun onIsPlayingChanged(isPlayingChange: Boolean) {
+                isPlaying = isPlayingChange
+            }
+            override fun onPlaybackStateChanged(playbackState: Int) {
+                if (playbackState == androidx.media3.common.Player.STATE_READY) {
+                    trackDuration = exoPlayer.duration.coerceAtLeast(0L)
+                } else if (playbackState == androidx.media3.common.Player.STATE_ENDED) {
+                    isPlaying = false
+                    currentPosition = 0L
+                    exoPlayer.seekTo(0L)
+                    exoPlayer.pause()
+                }
+            }
+        }
+        exoPlayer.addListener(listener)
+        onDispose {
+            exoPlayer.removeListener(listener)
+            exoPlayer.release()
+        }
+    }
+
+    LaunchedEffect(isPlaying) {
+        while(isPlaying) {
+            currentPosition = exoPlayer.currentPosition
+            kotlinx.coroutines.delay(200)
+        }
+    }
 
     LaunchedEffect(userId) {
         try {
@@ -326,11 +430,8 @@ fun ProfileScreen(
                                         Text("📅 Date de Naissance : ", color = Color.Gray, style = MaterialTheme.typography.bodyMedium)
                                         Text(currentDob, color = Color.White, fontWeight = FontWeight.Medium, style = MaterialTheme.typography.bodyMedium)
                                     }
-                                    Spacer(modifier = Modifier.height(6.dp))
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Text("🔮 Signe du Zodiaque : ", color = Color.Gray, style = MaterialTheme.typography.bodyMedium)
-                                        Text(currentZodiac, color = Color(0xFFA78BFA), fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium)
-                                    }
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    ZodiacBadge(sign = currentZodiac, modifier = Modifier.fillMaxWidth())
                                 }
                                 
                                 if (currentEmail.isNotBlank()) {
@@ -447,21 +548,109 @@ fun ProfileScreen(
                         val sound = userSounds[index]
                         Card(
                             modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp).clickable { onSoundClick(sound) },
-                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
                         ) {
-                            Row(modifier = Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                                AsyncImage(
-                                    model = sound.cover_url ?: "https://picsum.photos/200",
-                                    contentDescription = null,
-                                    modifier = Modifier.size(50.dp).clip(RoundedCornerShape(8.dp)),
-                                    contentScale = ContentScale.Crop
-                                )
-                                Spacer(modifier = Modifier.width(12.dp))
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(sound.title ?: "Untitled", color = Color.White, fontWeight = FontWeight.SemiBold)
-                                    Text(sound.category ?: "Music", color = Color.Gray, style = MaterialTheme.typography.bodySmall)
+                            Column(modifier = Modifier.padding(16.dp)) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    AsyncImage(
+                                        model = sound.cover_url,
+                                        contentDescription = "Cover",
+                                        modifier = Modifier.size(48.dp).clip(RoundedCornerShape(8.dp)),
+                                        contentScale = ContentScale.Crop
+                                    )
+                                    Spacer(modifier = Modifier.width(16.dp))
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(sound.title, fontWeight = FontWeight.Bold, color = Color.White)
+                                        Text("Durée: ${String.format("%.1f", sound.duration ?: 0f)} s", color = Color.Gray, style = MaterialTheme.typography.bodySmall)
+                                    }
+                                    IconButton(
+                                        onClick = {
+                                            if (currentlyPlayingId == sound.id && isPlaying) {
+                                                exoPlayer.pause()
+                                            } else {
+                                                if (currentlyPlayingId != sound.id) {
+                                                    sound.audio_url?.let {
+                                                        exoPlayer.setMediaItem(androidx.media3.common.MediaItem.fromUri(it))
+                                                        exoPlayer.prepare()
+                                                    }
+                                                    currentlyPlayingId = sound.id
+                                                }
+                                                exoPlayer.play()
+                                            }
+                                        }
+                                    ) {
+                                        Icon(
+                                            imageVector = if (currentlyPlayingId == sound.id && isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                                            contentDescription = "Play/Pause",
+                                            tint = MaterialTheme.colorScheme.primary
+                                        )
+                                    }
+                                    if (authManager.getUserId() == sound.user_id || authManager.getUserId() == sound.author_id) {
+                                        IconButton(onClick = {
+                                            coroutineScope.launch {
+                                                try {
+                                                    NetworkModule.api.deleteSound(sound.id)
+                                                    userSounds = userSounds.filter { it.id != sound.id }
+                                                    if (currentlyPlayingId == sound.id) {
+                                                        exoPlayer.stop()
+                                                        currentlyPlayingId = null
+                                                    }
+                                                } catch(e: Exception) {}
+                                            }
+                                        }) {
+                                            Icon(Icons.Default.Delete, contentDescription = "Delete", tint = Color.Red)
+                                        }
+                                    }
                                 }
-                                Text("${sound.plays_count} plays", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelSmall)
+                                
+                                // Player controls exactly like an HTML5 audio player when active
+                                if (currentlyPlayingId == sound.id) {
+                                    Spacer(modifier = Modifier.height(12.dp))
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Text(
+                                            "${String.format("%02d:%02d", (currentPosition / 1000) / 60, (currentPosition / 1000) % 60)}",
+                                            color = Color.LightGray, 
+                                            style = MaterialTheme.typography.labelSmall
+                                        )
+                                        Slider(
+                                            value = if (trackDuration > 0) currentPosition.toFloat() / trackDuration else 0f,
+                                            onValueChange = { frac ->
+                                                val target = (frac * trackDuration).toLong()
+                                                exoPlayer.seekTo(target)
+                                                currentPosition = target
+                                            },
+                                            modifier = Modifier.weight(1f).padding(horizontal = 8.dp),
+                                            colors = SliderDefaults.colors(
+                                                thumbColor = MaterialTheme.colorScheme.primary,
+                                                activeTrackColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.8f)
+                                            )
+                                        )
+                                        Text(
+                                            "${String.format("%02d:%02d", (trackDuration / 1000) / 60, (trackDuration / 1000) % 60)}",
+                                            color = Color.LightGray, 
+                                            style = MaterialTheme.typography.labelSmall
+                                        )
+                                    }
+                                    // Volume control
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        var vol by remember { mutableFloatStateOf(exoPlayer.volume) }
+                                        Icon(
+                                            imageVector = Icons.Default.VolumeUp,
+                                            contentDescription = "Volume",
+                                            tint = Color.Gray,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                        Slider(
+                                            value = vol,
+                                            onValueChange = { exoPlayer.volume = it; vol = it },
+                                            modifier = Modifier.fillMaxWidth(0.4f).padding(horizontal = 8.dp),
+                                            colors = SliderDefaults.colors(
+                                                thumbColor = Color.Gray,
+                                                activeTrackColor = Color.LightGray
+                                            )
+                                        )
+                                    }
+                                }
                             }
                         }
                     }
@@ -672,21 +861,26 @@ fun ProfileScreen(
                                 
                                 // Zodiac Sign live detection
                                 val liveZodiac = calculateZodiacFromDob(dobState)
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .clip(RoundedCornerShape(8.dp))
-                                        .background(Color(0x0DFFFFFF))
-                                        .padding(8.dp)
-                                ) {
-                                    Text("🔮 Signe Détecté : ", color = Color.Gray, style = MaterialTheme.typography.bodyMedium)
-                                    Text(
-                                        text = liveZodiac,
-                                        color = if (liveZodiac.startsWith("Format") || liveZodiac.startsWith("Mois") || liveZodiac.startsWith("Jour") || liveZodiac.startsWith("Inconnu") || liveZodiac.startsWith("Entrez") || liveZodiac.startsWith("Incomplet")) Color.LightGray.copy(alpha = 0.5f) else Color(0xFF00FFCC),
-                                        fontWeight = FontWeight.Bold,
-                                        style = MaterialTheme.typography.bodyMedium
-                                    )
+                                val isError = liveZodiac.startsWith("Format") || liveZodiac.startsWith("Mois") || liveZodiac.startsWith("Jour") || liveZodiac.startsWith("Inconnu") || liveZodiac.startsWith("Entrez") || liveZodiac.startsWith("Incomplet")
+                                if (isError) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .background(Color(0x0DFFFFFF))
+                                            .padding(8.dp)
+                                    ) {
+                                        Text("🔮 Signe Détecté : ", color = Color.Gray, style = MaterialTheme.typography.bodyMedium)
+                                        Text(
+                                            text = liveZodiac,
+                                            color = Color.LightGray.copy(alpha = 0.5f),
+                                            fontWeight = FontWeight.Bold,
+                                            style = MaterialTheme.typography.bodyMedium
+                                        )
+                                    }
+                                } else {
+                                    ZodiacBadge(sign = liveZodiac, modifier = Modifier.fillMaxWidth())
                                 }
                                 
                                 Spacer(modifier = Modifier.height(12.dp))
@@ -701,7 +895,26 @@ fun ProfileScreen(
                                                 email = emailState,
                                                 dob = dobState
                                             )
-                                            Toast.makeText(context, "Profil enregistré ! Signe: $liveZodiac", Toast.LENGTH_SHORT).show()
+                                            // Synchronize to cloud if dobState has valid date Format YYYY-MM-DD
+                                            // dobState might be like YYYY/MM/DD, so replace / with -
+                                            val formattedDob = dobState.replace("/", "-").replace(".", "-")
+                                            if (formattedDob.length >= 10) {
+                                                coroutineScope.launch {
+                                                    try {
+                                                        val req = com.example.domain.model.VerificationCriteria(birth_date = formattedDob)
+                                                        val result = NetworkModule.api.requestVerification(req)
+                                                        if (result.verified) {
+                                                            Toast.makeText(context, "Profil enregistré et vérifié! Signe: ${result.zodiac_sign}", Toast.LENGTH_SHORT).show()
+                                                        } else {
+                                                            Toast.makeText(context, "Profil enregistré ! ${result.reason ?: ""}", Toast.LENGTH_SHORT).show()
+                                                        }
+                                                    } catch (e: Exception) {
+                                                        Toast.makeText(context, "Profil enregistré localement !", Toast.LENGTH_SHORT).show()
+                                                    }
+                                                }
+                                            } else {
+                                                Toast.makeText(context, "Profil enregistré ! Signe: $liveZodiac", Toast.LENGTH_SHORT).show()
+                                            }
                                         } else {
                                             Toast.makeText(context, "Erreur : Profil introuvable", Toast.LENGTH_SHORT).show()
                                         }
@@ -733,8 +946,8 @@ fun ProfileScreen(
                             Icon(Icons.Default.BarChart, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                             Spacer(modifier = Modifier.width(16.dp))
                             Column(modifier = Modifier.weight(1f)) {
-                                Text("Dashboard Analytique", color = Color.White, fontWeight = FontWeight.SemiBold)
-                                Text("Statistiques Créateur", color = Color.Gray, style = MaterialTheme.typography.bodySmall)
+                                Text("Dashboard Projets & Analytique", color = Color.White, fontWeight = FontWeight.SemiBold)
+                                Text("Gérez vos sons et vos statistiques", color = Color.Gray, style = MaterialTheme.typography.bodySmall)
                             }
                         }
                     }

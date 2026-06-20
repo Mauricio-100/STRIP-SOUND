@@ -18,6 +18,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
@@ -49,6 +50,16 @@ import androidx.compose.ui.draw.clip
 import coil.compose.AsyncImage
 import com.example.data.local.SearchHistoryManager
 
+import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.automirrored.filled.List
+
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Bluetooth
+import androidx.compose.material3.LinearProgressIndicator
+import kotlinx.coroutines.delay
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScreen(
@@ -65,6 +76,7 @@ fun HomeScreen(
     var sounds by remember { mutableStateOf<List<Sound>>(emptyList()) }
     var storyVideos by remember { mutableStateOf<List<com.example.domain.model.VideoResponse>>(emptyList()) }
     var isLoading by remember { mutableStateOf(true) }
+    var selectedMenuLabel by remember { mutableStateOf("Explore") }
     
     var searchQuery by remember { mutableStateOf("") }
     var isSearchActive by remember { mutableStateOf(false) }
@@ -73,6 +85,33 @@ fun HomeScreen(
     var searchResults by remember { mutableStateOf<List<Sound>?>(null) }
     var searchCreatorsResults by remember { mutableStateOf<List<com.example.domain.model.UserResponse>?>(null) }
     var searchMetadata by remember { mutableStateOf<com.example.domain.model.SearchMetadata?>(null) }
+
+    val context = LocalContext.current
+    val exoPlayer = remember { 
+        val attr = androidx.media3.common.AudioAttributes.Builder()
+            .setUsage(androidx.media3.common.C.USAGE_MEDIA)
+            .setContentType(androidx.media3.common.C.AUDIO_CONTENT_TYPE_MUSIC)
+            .build()
+        androidx.media3.exoplayer.ExoPlayer.Builder(context)
+            .setAudioAttributes(attr, false)
+            .build()
+    }
+    
+    DisposableEffect(Unit) {
+        onDispose { exoPlayer.release() }
+    }
+    
+    var currentlyPlayingSound by remember { mutableStateOf<Sound?>(null) }
+    var isGlobalPlaying by remember { mutableStateOf(false) }
+
+    LaunchedEffect(currentlyPlayingSound) {
+        currentlyPlayingSound?.audio_url?.let { url ->
+            exoPlayer.setMediaItem(androidx.media3.common.MediaItem.fromUri(url))
+            exoPlayer.prepare()
+            exoPlayer.play()
+            isGlobalPlaying = true
+        }
+    }
 
     LaunchedEffect(searchQuery, isSearchActive) {
         if (searchQuery.length >= 2 && !isSearchActive) {
@@ -142,52 +181,118 @@ fun HomeScreen(
         }
     }
 
-    Scaffold(
-        floatingActionButton = {
-            FloatingActionButton(
-                onClick = onUploadClick,
-                containerColor = MaterialTheme.colorScheme.primary,
-                contentColor = Color.Black
+    val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
+
+    ModalNavigationDrawer(
+        drawerState = drawerState,
+        drawerContent = {
+            ModalDrawerSheet(
+                modifier = Modifier.width(280.dp),
+                drawerContainerColor = MaterialTheme.colorScheme.surfaceVariant
             ) {
-                Icon(Icons.Default.Add, contentDescription = "Publier")
-            }
-        },
-        topBar = {
-            TopAppBar(
-                title = {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Box(
-                            modifier = Modifier
-                                .size(32.dp)
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(androidx.compose.ui.graphics.Brush.linearGradient(listOf(Color(0xFF06B6D4), Color(0xFF2563EB)))),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(16.dp)
-                                    .clip(CircleShape)
-                                    .background(Color.White),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(8.dp)
-                                        .clip(RoundedCornerShape(2.dp))
-                                        .background(Color.Black)
-                                )
+                Spacer(modifier = Modifier.height(24.dp))
+                Text(
+                    text = "MENU",
+                    modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = Color.Gray,
+                    fontWeight = FontWeight.Bold
+                )
+                
+                NavigationDrawerItem(
+                    label = { Text("Explore") },
+                    icon = { Icon(Icons.Default.Search, contentDescription = null) },
+                    selected = selectedMenuLabel == "Explore",
+                    onClick = { 
+                        selectedMenuLabel = "Explore"
+                        coroutineScope.launch { drawerState.close() } 
+                    },
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
+                )
+                
+                NavigationDrawerItem(
+                    label = { Text("Abonné") },
+                    icon = { Icon(Icons.Default.Verified, contentDescription = null) },
+                    selected = selectedMenuLabel == "Abonné",
+                    onClick = { 
+                        selectedMenuLabel = "Abonné"
+                        coroutineScope.launch { drawerState.close() } 
+                    },
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
+                )
+
+                NavigationDrawerItem(
+                    label = { Text("Top Sound") },
+                    icon = { Icon(Icons.Default.Favorite, contentDescription = null) },
+                    selected = selectedMenuLabel == "Top Sound",
+                    onClick = { 
+                        selectedMenuLabel = "Top Sound"
+                        coroutineScope.launch { drawerState.close() } 
+                    },
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
+                )
+
+                NavigationDrawerItem(
+                    label = { Text("Classement") },
+                    icon = { Icon(Icons.AutoMirrored.Filled.List, contentDescription = null) },
+                    selected = selectedMenuLabel == "Classement",
+                    onClick = { 
+                        selectedMenuLabel = "Classement"
+                        coroutineScope.launch { drawerState.close() } 
+                    },
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
+                )
+
+                Spacer(modifier = Modifier.weight(1f))
+
+                if (currentlyPlayingSound != null) {
+                    DrawerAudioPlayer(
+                        sound = currentlyPlayingSound,
+                        exoPlayer = exoPlayer,
+                        isPlaying = isGlobalPlaying,
+                        onPlayPause = {
+                            if (isGlobalPlaying) {
+                                exoPlayer.pause()
+                            } else {
+                                exoPlayer.play()
                             }
+                            isGlobalPlaying = !isGlobalPlaying
                         }
-                        Spacer(modifier = Modifier.width(12.dp))
+                    )
+                }
+            }
+        }
+    ) {
+        Scaffold(
+            floatingActionButton = {
+                FloatingActionButton(
+                    onClick = onUploadClick,
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    contentColor = Color.Black
+                ) {
+                    Icon(Icons.Default.Add, contentDescription = "Publier")
+                }
+            },
+            topBar = {
+                TopAppBar(
+                    title = {
                         Text(
-                            "STRIP SOUND",
-                            fontWeight = FontWeight.Bold,
-                            style = MaterialTheme.typography.titleMedium,
+                            text = "STRIP SOUND",
+                            fontWeight = FontWeight.Black,
+                            style = MaterialTheme.typography.titleLarge,
+                            color = Color(0xFF00FFCC),
                             letterSpacing = 1.sp
                         )
-                    }
-                },
-                actions = {
+                    },
+                    navigationIcon = {
+                        IconButton(onClick = { coroutineScope.launch { drawerState.open() } }) {
+                            Icon(
+                                imageVector = Icons.Default.Menu,
+                                contentDescription = "Menu"
+                            )
+                        }
+                    },
+                    actions = {
                     IconButton(
                         onClick = { onProfileClick() },
                         modifier = Modifier
@@ -215,6 +320,33 @@ fun HomeScreen(
                     .fillMaxSize()
                     .padding(padding)
             ) {
+                // Hero Banner
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp)
+                        .clip(RoundedCornerShape(24.dp))
+                        .background(androidx.compose.ui.graphics.Brush.linearGradient(
+                            colors = listOf(Color(0xFF00FFCC), Color(0xFF06B6D4), Color(0xFF2563EB))
+                        ))
+                        .padding(24.dp)
+                ) {
+                    Column {
+                        Text(
+                            "Discover",
+                            color = Color.White,
+                            style = MaterialTheme.typography.headlineMedium,
+                            fontWeight = FontWeight.Black
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            "New trending sounds & stories",
+                            color = Color.White.copy(alpha = 0.9f),
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                    }
+                }
+                
                 SearchBar(
                     query = searchQuery,
                     onQueryChange = { searchQuery = it },
@@ -264,14 +396,27 @@ fun HomeScreen(
                                     .width(100.dp)
                                     .height(140.dp)
                                     .clip(RoundedCornerShape(12.dp))
-                                    .background(MaterialTheme.colorScheme.surfaceVariant)
+                                    .background(MaterialTheme.colorScheme.surface)
+                                    .border(1.dp, Color.LightGray.copy(alpha = 0.2f), RoundedCornerShape(12.dp))
                                     .clickable { onCreateStoryClick() },
                                 contentAlignment = Alignment.Center
                             ) {
-                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                    Icon(Icons.Default.Add, contentDescription = "Créer une story", modifier = Modifier.size(32.dp), tint = MaterialTheme.colorScheme.primary)
+                                Column(
+                                    modifier = Modifier.fillMaxSize(),
+                                    verticalArrangement = Arrangement.Center,
+                                    horizontalAlignment = Alignment.CenterHorizontally
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(40.dp)
+                                            .clip(CircleShape)
+                                            .background(Color(0xFF00FFCC).copy(alpha = 0.2f)),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(Icons.Default.Add, contentDescription = "Créer une story", modifier = Modifier.size(24.dp), tint = Color(0xFF00FFCC))
+                                    }
                                     Spacer(modifier = Modifier.height(8.dp))
-                                    Text("Créer", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
+                                    Text("Add Story", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
                                 }
                             }
                         }
@@ -353,7 +498,14 @@ fun HomeScreen(
                     }
                 }
 
-                val filteredSounds = searchResults ?: sounds
+                val displayedSounds = when(selectedMenuLabel) {
+                    "Explore" -> sounds
+                    "Abonné" -> sounds.filterIndexed { index, _ -> index % 2 == 0 } // Mock logic
+                    "Top Sound" -> sounds.sortedByDescending { it.plays_count }
+                    "Classement" -> sounds.sortedByDescending { it.likes_count }
+                    else -> sounds
+                }
+                val filteredSounds = searchResults ?: displayedSounds
 
                 LazyColumn(
                     modifier = Modifier
@@ -361,7 +513,7 @@ fun HomeScreen(
                 ) {
                     item {
                         Text(
-                            text = if (searchQuery.isNotEmpty() && !isSearchActive) "Résultats de recherche" else "Tendances Audio \uD83D\uDD25",
+                            text = if (searchQuery.isNotEmpty() && !isSearchActive) "Résultats de recherche" else "$selectedMenuLabel \uD83D\uDD25",
                             style = MaterialTheme.typography.titleLarge,
                             modifier = Modifier.padding(16.dp),
                             fontWeight = FontWeight.Bold
@@ -429,19 +581,129 @@ fun HomeScreen(
                     }
 
                     items(filteredSounds) { sound ->
-                        SoundItem(sound = sound, authManager = authManager, onClick = { onSoundClick(sound) })
+                        SoundItem(
+                            sound = sound, 
+                            authManager = authManager, 
+                            onClick = { onSoundClick(sound) },
+                            onPlayClick = {
+                                if (currentlyPlayingSound?.id == sound.id) {
+                                    if (isGlobalPlaying) {
+                                        exoPlayer.pause()
+                                        isGlobalPlaying = false
+                                    } else {
+                                        exoPlayer.play()
+                                        isGlobalPlaying = true
+                                    }
+                                } else {
+                                    currentlyPlayingSound = sound
+                                }
+                            },
+                            onDeleteClick = {
+                                coroutineScope.launch {
+                                    try {
+                                        NetworkModule.api.deleteSound(sound.id)
+                                        // Update the local list
+                                        sounds = sounds.filter { it.id != sound.id }
+                                        if (searchResults != null) {
+                                            searchResults = searchResults!!.filter { it.id != sound.id }
+                                        }
+                                        if (currentlyPlayingSound?.id == sound.id) {
+                                            exoPlayer.stop()
+                                            currentlyPlayingSound = null
+                                            isGlobalPlaying = false
+                                        }
+                                    } catch (e: Exception) {
+                                        e.printStackTrace()
+                                    }
+                                }
+                            }
+                        )
                     }
                 }
             }
         }
     }
+    }
 }
 
 @Composable
-fun SoundItem(sound: Sound, authManager: com.example.data.local.AuthManager, onClick: () -> Unit) {
+fun DrawerAudioPlayer(
+    sound: Sound?,
+    exoPlayer: androidx.media3.exoplayer.ExoPlayer,
+    isPlaying: Boolean,
+    onPlayPause: () -> Unit
+) {
+    if (sound == null) return
+    var isBluetoothConnected by remember { mutableStateOf(false) }
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp)
+            .clip(RoundedCornerShape(16.dp))
+            .background(Color.Black.copy(alpha = 0.3f))
+            .padding(16.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            AsyncImage(
+                model = sound.cover_url ?: "https://api.dicebear.com/7.x/shapes/png?seed=${sound.title}",
+                contentDescription = "Cover",
+                modifier = Modifier
+                    .size(48.dp)
+                    .clip(RoundedCornerShape(8.dp)),
+                contentScale = ContentScale.Crop
+            )
+            Spacer(modifier = Modifier.width(12.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(sound.title, color = Color.White, fontWeight = FontWeight.Bold, maxLines = 1)
+                Text(sound.username ?: sound.author_username ?: "Unknown", color = Color.Gray, style = MaterialTheme.typography.labelSmall, maxLines = 1)
+            }
+            IconButton(onClick = { isBluetoothConnected = !isBluetoothConnected }) {
+                Icon(
+                    androidx.compose.material.icons.Icons.Default.Bluetooth,
+                    contentDescription = "Bluetooth",
+                    tint = if (isBluetoothConnected) Color(0xFF00FFCC) else Color.Gray
+                )
+            }
+            IconButton(onClick = onPlayPause) {
+                Icon(
+                    if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                    contentDescription = "Play/Pause",
+                    tint = Color(0xFF00FFCC)
+                )
+            }
+        }
+        Spacer(modifier = Modifier.height(12.dp))
+        var currentPos by remember { mutableLongStateOf(0L) }
+        var duration by remember { mutableLongStateOf(1L) }
+        
+        LaunchedEffect(isPlaying) {
+            while (isPlaying) {
+                currentPos = exoPlayer.currentPosition
+                duration = exoPlayer.duration.coerceAtLeast(1L)
+                delay(500)
+            }
+        }
+        
+        if (isBluetoothConnected) {
+            Text("Bluetooth connecté", color = Color(0xFF00FFCC), style = MaterialTheme.typography.labelSmall, modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center)
+            Spacer(modifier = Modifier.height(4.dp))
+        }
+        
+        LinearProgressIndicator(
+            progress = { if (duration > 0) (currentPos.toFloat() / duration).coerceIn(0f, 1f) else 0f },
+            modifier = Modifier.fillMaxWidth().height(4.dp).clip(CircleShape),
+            color = Color(0xFF00FFCC),
+            trackColor = Color.DarkGray.copy(alpha = 0.5f)
+        )
+    }
+}
+
+@Composable
+fun SoundItem(sound: Sound, authManager: com.example.data.local.AuthManager, onClick: () -> Unit, onPlayClick: () -> Unit, onDeleteClick: (() -> Unit)? = null) {
     var isLiked by remember { mutableStateOf(authManager.isSoundLiked(sound.id)) }
     var likesCount by remember { mutableIntStateOf(sound.likes_count) }
     val context = LocalContext.current
+    val currentUserId = authManager.getUserId()
     
     Card(
         modifier = Modifier
@@ -523,7 +785,7 @@ fun SoundItem(sound: Sound, authManager: com.example.data.local.AuthManager, onC
                     )
                 }
                 
-                IconButton(onClick = onClick) {
+                IconButton(onClick = onPlayClick) {
                     Icon(
                         Icons.Default.PlayArrow,
                         contentDescription = "Play",
@@ -587,6 +849,14 @@ fun SoundItem(sound: Sound, authManager: com.example.data.local.AuthManager, onC
                     Icon(Icons.Default.Share, contentDescription = "Share", tint = Color.Gray, modifier = Modifier.size(18.dp))
                     Spacer(modifier = Modifier.width(4.dp))
                     Text("Partager", color = Color.Gray, style = MaterialTheme.typography.labelMedium)
+                }
+                
+                if (onDeleteClick != null && currentUserId != null && (sound.user_id == currentUserId || sound.author_id == currentUserId)) {
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clickable { onDeleteClick() }.padding(8.dp)) {
+                        Icon(Icons.Default.Delete, contentDescription = "Delete", tint = Color.Red, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Supprimer", color = Color.Red, style = MaterialTheme.typography.labelMedium)
+                    }
                 }
             }
         }

@@ -12,15 +12,15 @@ class AudioService : MediaSessionService() {
 
     override fun onCreate() {
         super.onCreate()
-        val player = ExoPlayer.Builder(this).build().apply {
-            setAudioAttributes(
+        val player = ExoPlayer.Builder(this)
+            .setAudioAttributes(
                 AudioAttributes.Builder()
                     .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
                     .setUsage(C.USAGE_MEDIA)
                     .build(),
-                true
+                false
             )
-        }
+            .build()
         mediaSession = MediaSession.Builder(this, player).build()
     }
 

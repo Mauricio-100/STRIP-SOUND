@@ -117,6 +117,26 @@ class MainActivity : ComponentActivity() {
                         }
                     }
 
+                    val context = androidx.compose.ui.platform.LocalContext.current
+                    LaunchedEffect(isLoggedIn) {
+                        if (isLoggedIn) {
+                            val notificationManager = com.example.util.CustomNotificationManager(context)
+                            val activities = listOf(
+                                Pair("Nouvelle Story", "Un créateur que vous suivez a publié une nouvelle story."),
+                                Pair("Nouvel Abonnement", "Marc a commencé à vous suivre."),
+                                Pair("Nouveau Like", "Quelqu'un a aimé votre création."),
+                                Pair("Nouveau Commentaire", "Julie a commenté: 'Wow, super son!'"),
+                                Pair("Nouveau Partage", "Thomas a partagé votre titre."),
+                                Pair("10 Nouvelles Lectures", "Félicitations, votre son a obtenu 10 nouvelles lectures !")
+                            )
+                            while (true) {
+                                kotlinx.coroutines.delay(kotlin.random.Random.nextLong(15000, 35000))
+                                val (title, message) = activities.random()
+                                notificationManager.showActivityNotification(title, message)
+                            }
+                        }
+                    }
+
                     Box(modifier = Modifier.fillMaxSize()) {
                         NavHost(
                             navController = navController, 
@@ -215,22 +235,7 @@ class MainActivity : ComponentActivity() {
                             }
                         }
 
-                        // Persistent bottom audio player component
-                        if (isLoggedIn && currentSound != null && !showPlayer) {
-                            PersistentPlayerBar(
-                                sound = currentSound!!,
-                                isPlaying = isPlaying,
-                                currentPosition = currentPosition,
-                                duration = duration,
-                                volume = volume,
-                                onPlayPauseClick = { audioPlayerManager.togglePlayPause() },
-                                onVolumeChange = { audioPlayerManager.setVolume(it) },
-                                onBarClick = { showPlayer = true },
-                                modifier = Modifier
-                                    .align(Alignment.BottomCenter)
-                                    .padding(horizontal = 16.dp, vertical = 24.dp)
-                            )
-                        }
+                        // Persistent bottom audio player component removed as requested
                     }
 
                     AnimatedVisibility(

@@ -6,6 +6,7 @@ import android.provider.OpenableColumns
 import android.media.MediaCodec
 import android.media.MediaExtractor
 import android.media.MediaFormat
+import android.media.MediaMetadataRetriever
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
@@ -220,6 +221,39 @@ fun UploadSoundScreen(onBack: () -> Unit, onNavigateToAudioMetadata: () -> Unit 
             audioGainBoost = 1f
             isFadeInEnabled = false
             isFadeOutEnabled = false
+            
+            // Extract metadata automatically
+            coroutineScope.launch(Dispatchers.IO) {
+                try {
+                    val retriever = MediaMetadataRetriever()
+                    retriever.setDataSource(context, uri)
+                    
+                    val durationStr = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
+                    val durationMs = durationStr?.toLongOrNull() ?: 0L
+                    val seconds = (durationMs / 1000) % 60
+                    val minutes = (durationMs / 1000) / 60
+                    AudioMetadataStore.duration = String.format("%02d:%02d", minutes, seconds)
+                    
+                    val extractor = MediaExtractor()
+                    extractor.setDataSource(context, uri, null)
+                    if (extractor.trackCount > 0) {
+                        val format = extractor.getTrackFormat(0)
+                        if (format.containsKey(MediaFormat.KEY_SAMPLE_RATE)) {
+                            AudioMetadataStore.sampleRate = format.getInteger(MediaFormat.KEY_SAMPLE_RATE).toString()
+                        }
+                        if (format.containsKey(MediaFormat.KEY_PCM_ENCODING)) {
+                            val encoding = format.getInteger(MediaFormat.KEY_PCM_ENCODING)
+                            AudioMetadataStore.bitDepth = if (encoding == android.media.AudioFormat.ENCODING_PCM_8BIT) "8" else if (encoding == android.media.AudioFormat.ENCODING_PCM_32BIT) "32" else "16"
+                        } else {
+                            AudioMetadataStore.bitDepth = "16"
+                        }
+                    }
+                    extractor.release()
+                    retriever.release()
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+            }
         }
     }
 
@@ -341,7 +375,7 @@ fun UploadSoundScreen(onBack: () -> Unit, onNavigateToAudioMetadata: () -> Unit 
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .aspectRatio(1.7f)
+                    .aspectRatio(1f) // Square aspect ratio for full cover vignette
                     .clip(RoundedCornerShape(16.dp))
                     .background(Color(0xFF0F1620))
                     .border(1.dp, Color(0x1F00FFCC), RoundedCornerShape(16.dp))
@@ -584,7 +618,13 @@ fun LocalAudioPlayer(
 ) {
     val context = LocalContext.current
     val exoPlayer = remember {
-        androidx.media3.exoplayer.ExoPlayer.Builder(context).build().apply {
+        val attr = androidx.media3.common.AudioAttributes.Builder()
+            .setUsage(androidx.media3.common.C.USAGE_MEDIA)
+            .setContentType(androidx.media3.common.C.AUDIO_CONTENT_TYPE_MUSIC)
+            .build()
+        androidx.media3.exoplayer.ExoPlayer.Builder(context)
+            .setAudioAttributes(attr, false)
+            .build().apply {
             setMediaItem(androidx.media3.common.MediaItem.fromUri(uri))
             prepare()
         }

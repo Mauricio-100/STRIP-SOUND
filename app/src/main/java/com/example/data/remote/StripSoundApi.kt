@@ -32,6 +32,11 @@ interface StripSoundApi {
     @GET("users/me")
     suspend fun getMyProfile(): com.example.domain.model.UserResponse
 
+    @POST("users/me/verify")
+    suspend fun requestVerification(
+        @Body criteria: com.example.domain.model.VerificationCriteria
+    ): com.example.domain.model.VerificationResult
+
     @GET("feed/random")
     suspend fun getRandomVideos(@Query("limit") limit: Int = 10): List<VideoResponse>
 
@@ -113,4 +118,7 @@ interface StripSoundApi {
         @Query("type") type: String = "users",
         @Query("limit") limit: Int = 20
     ): com.example.domain.model.UserSearchResponse
+
+    @DELETE("sounds/{sound_id}")
+    suspend fun deleteSound(@Path("sound_id") soundId: String)
 }
