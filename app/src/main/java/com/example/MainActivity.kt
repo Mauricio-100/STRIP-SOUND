@@ -43,7 +43,9 @@ import com.example.ui.screens.ProfileScreen
 import com.example.ui.screens.AnalyticsScreen
 import com.example.ui.screens.UploadSoundScreen
 import com.example.ui.screens.StoryViewerScreen
+import com.example.ui.screens.CollabLabScreen
 import com.example.ui.screens.CreateStoryScreen
+import com.example.ui.screens.CreatorProfileScreen
 import com.example.ui.theme.MyApplicationTheme
 import com.example.domain.model.VideoResponse
 
@@ -61,6 +63,14 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
+        // Clear any old/stale active notifications from previous installations to prevent SystemUI I/O errors on deleted APK resources
+        try {
+            val notificationManager = getSystemService(android.content.Context.NOTIFICATION_SERVICE) as android.app.NotificationManager
+            notificationManager.cancelAll()
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+
         // Request runtime notification & bluetooth connect permissions dynamically to support AirPods, Speakers and Media Notifications elegantly
         val permissionsNeeded = mutableListOf<String>()
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
@@ -73,7 +83,12 @@ class MainActivity : ComponentActivity() {
             requestPermissions(permissionsNeeded.toTypedArray(), 101)
         }
 
-        audioPlayerManager = AudioPlayerManager(this)
+        val audioAttributionContext = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+            createAttributionContext("audio")
+        } else {
+            this
+        }
+        audioPlayerManager = AudioPlayerManager(audioAttributionContext)
         authManager = AuthManager(this)
         appDatabase = AppDatabase.getDatabase(this)
         audioDownloader = AudioDownloader(this, appDatabase)
@@ -118,47 +133,14 @@ class MainActivity : ComponentActivity() {
                     }
 
                     val context = androidx.compose.ui.platform.LocalContext.current
+                    
+                    val notificationPoller = remember { com.example.util.NotificationPoller(context, authManager) }
+                    
                     LaunchedEffect(isLoggedIn) {
                         if (isLoggedIn) {
-                            val notificationManager = com.example.util.CustomNotificationManager(context)
-                            val creators = listOf("Emma", "Julien", "Lucas", "Sophie", "Lucas", "Alexandre", "Marc", "Julie", "Thomas", "Manon")
-                            val sounds = listOf("Deep Bass Drop", "Electro Chill", "Acoustic Sunset", "Summer Wave", "Strip Beat #3", "Podcast Chill")
-                            val commentsText = listOf("Wow, super son !", "Ce rythme est incroyable 🔥", "J'adore l'ambiance, propre !", "Vraiment lourd !", "Add a ma playlist direct !")
-                            
-                            while (true) {
-                                kotlinx.coroutines.delay(kotlin.random.Random.nextLong(15000, 30000))
-                                when (kotlin.random.Random.nextInt(6)) {
-                                    0 -> {
-                                        val creator = creators.random()
-                                        val title = sounds.random()
-                                        notificationManager.notifyNewStory(creator, title)
-                                    }
-                                    1 -> {
-                                        val follower = creators.random()
-                                        notificationManager.notifyNewSubscription(follower)
-                                    }
-                                    2 -> {
-                                        val liker = creators.random()
-                                        val item = sounds.random()
-                                        notificationManager.notifyNewLike(liker, item)
-                                    }
-                                    3 -> {
-                                        val commenter = creators.random()
-                                        val comment = commentsText.random()
-                                        val item = sounds.random()
-                                        notificationManager.notifyNewComment(commenter, comment, item)
-                                    }
-                                    4 -> {
-                                        val sharer = creators.random()
-                                        val item = sounds.random()
-                                        notificationManager.notifyNewShare(sharer, item)
-                                    }
-                                    5 -> {
-                                        val title = sounds.random()
-                                        notificationManager.notifyTenNewPlays(title)
-                                    }
-                                }
-                            }
+                            notificationPoller.startPolling()
+                        } else {
+                            notificationPoller.stopPolling()
                         }
                     }
 
@@ -200,8 +182,12 @@ class MainActivity : ComponentActivity() {
                                     onCreateStoryClick = {
                                         navController.navigate("create_story")
                                     },
+                                    onCollabLabClick = {
+                                        navController.navigate("collab_lab")
+                                    },
                                     searchHistoryManager = searchHistoryManager,
-                                    authManager = authManager
+                                    authManager = authManager,
+                                    audioPlayerManager = audioPlayerManager
                                 )
                             }
                             composable("create_story") {
@@ -216,8 +202,7 @@ class MainActivity : ComponentActivity() {
                             }
                             composable("upload") {
                                 UploadSoundScreen(
-                                    onBack = { navController.popBackStack() },
-                                    onNavigateToAudioMetadata = { navController.navigate("audio_metadata") }
+                                    onBack = { navController.popBackStack() }
                                 )
                             }
                             composable("profile") {
@@ -235,17 +220,21 @@ class MainActivity : ComponentActivity() {
                                 )
                             }
                             composable("profile/{userId}") { backStackEntry ->
-                                ProfileScreen(
-                                    userId = backStackEntry.arguments?.getString("userId"),
-                                    authManager = authManager,
-                                    appDatabase = appDatabase,
+                                val uid = backStackEntry.arguments?.getString("userId") ?: ""
+                                CreatorProfileScreen(
+                                    creatorId = uid,
                                     onBack = { navController.popBackStack() },
-                                    onLogout = { },
-                                    onAnalyticsClick = { navController.navigate("analytics") },
-                                    onSoundClick = { sound ->
+                                    onPlaySound = { sound ->
                                         currentSound = sound
                                         showPlayer = true
                                     }
+                                )
+                            }
+                            composable("collab_lab") {
+                                CollabLabScreen(
+                                    currentUserId = authManager.getUserId() ?: "",
+                                    onBack = { navController.popBackStack() },
+                                    audioPlayerManager = audioPlayerManager
                                 )
                             }
                             composable("analytics") {

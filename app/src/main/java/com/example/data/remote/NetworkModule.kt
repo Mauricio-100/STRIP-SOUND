@@ -9,7 +9,7 @@ import okhttp3.logging.HttpLoggingInterceptor
 import java.util.concurrent.TimeUnit
 
 object NetworkModule {
-    private const val BASE_URL = "https://hoosthubs-g.onrender.com/api/"
+    const val BASE_URL = "https://hoosthubs-g.onrender.com/api/"
 
     private val moshi = Moshi.Builder()
         .add(KotlinJsonAdapterFactory())
@@ -24,9 +24,16 @@ object NetworkModule {
     private val client = OkHttpClient.Builder()
         .addInterceptor(loggingInterceptor)
         .addInterceptor { chain ->
-            val requestBuilder = chain.request().newBuilder()
-            tokenProvider?.invoke()?.let { token ->
-                requestBuilder.addHeader("Authorization", "Bearer $token")
+            val request = chain.request()
+            val requestBuilder = request.newBuilder()
+            val path = request.url.encodedPath
+            // Avoid adding Authorization headers to dynamic token retrieval or registry endpoints
+            if (!path.endsWith("/token") && !path.endsWith("/register") && !path.endsWith("/login")) {
+                tokenProvider?.invoke()?.let { token ->
+                    if (token.isNotBlank()) {
+                        requestBuilder.addHeader("Authorization", "Bearer $token")
+                    }
+                }
             }
             chain.proceed(requestBuilder.build())
         }
@@ -37,7 +44,7 @@ object NetworkModule {
     val retrofit: Retrofit = Retrofit.Builder()
         .baseUrl(BASE_URL)
         .client(client)
-        .addConverterFactory(MoshiConverterFactory.create(moshi))
+        .addConverterFactory(MoshiConverterFactory.create(moshi).asLenient())
         .build()
 
     val api: StripSoundApi = retrofit.create(StripSoundApi::class.java)

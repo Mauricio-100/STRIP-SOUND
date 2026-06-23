@@ -1,18 +1,36 @@
 package com.example.data.local
 
 import android.content.Context
-import androidx.room.Database
-import androidx.room.Room
-import androidx.room.RoomDatabase
+import androidx.room.*
 
-@Database(
-    entities = [DownloadedSoundEntity::class, PlaylistEntity::class, PlaylistTrackEntity::class],
-    version = 2,
-    exportSchema = false
+@Entity(tableName = "downloaded_sounds")
+data class DownloadedSoundEntity(
+    @PrimaryKey val id: String = "",
+    val title: String = "",
+    val category: String = "",
+    val coverUrl: String? = null,
+    val authorName: String = "",
+    val localFilePath: String = ""
 )
+
+@Dao
+interface SoundDao {
+    @Query("SELECT * FROM downloaded_sounds")
+    suspend fun getAllDownloadedSounds(): List<DownloadedSoundEntity>
+
+    @Query("SELECT * FROM downloaded_sounds WHERE id = :id LIMIT 1")
+    suspend fun getDownloadedSound(id: String): DownloadedSoundEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insert(sound: DownloadedSoundEntity)
+
+    @Query("DELETE FROM downloaded_sounds WHERE id = :id")
+    suspend fun deleteById(id: String)
+}
+
+@Database(entities = [DownloadedSoundEntity::class], version = 1, exportSchema = false)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun soundDao(): SoundDao
-    abstract fun playlistDao(): PlaylistDao
 
     companion object {
         @Volatile
@@ -23,10 +41,8 @@ abstract class AppDatabase : RoomDatabase() {
                 val instance = Room.databaseBuilder(
                     context.applicationContext,
                     AppDatabase::class.java,
-                    "strip_sound_db"
-                )
-                    .fallbackToDestructiveMigration()
-                    .build()
+                    "strip_sound_database"
+                ).fallbackToDestructiveMigration().build()
                 INSTANCE = instance
                 instance
             }

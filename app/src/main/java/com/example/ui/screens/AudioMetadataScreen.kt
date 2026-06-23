@@ -1,107 +1,178 @@
 package com.example.ui.screens
 
-import android.widget.Toast
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.graphics.Color
-
-object AudioMetadataStore {
-    var sampleRate: String = ""
-    var bitDepth: String = ""
-    var duration: String = ""
-}
+import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AudioMetadataScreen(
-    onBack: () -> Unit
-) {
-    var sampleRate by remember { mutableStateOf(AudioMetadataStore.sampleRate.ifEmpty { "44100" }) }
-    var bitDepth by remember { mutableStateOf(AudioMetadataStore.bitDepth.ifEmpty { "16" }) }
-    var duration by remember { mutableStateOf(AudioMetadataStore.duration.ifEmpty { "00:00" }) }
-    val context = LocalContext.current
+fun AudioMetadataScreen(onBack: () -> Unit) {
+    var genre by remember { mutableStateOf("") }
+    var keySignature by remember { mutableStateOf("") }
+    var bpm by remember { mutableStateOf("120") }
+    var copyrightInfo by remember { mutableStateOf("") }
+    var isSaving by remember { mutableStateOf(false) }
+    var successMsg by remember { mutableStateOf<String?>(null) }
+    
+    val coroutineScope = rememberCoroutineScope()
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("Audio Metadata", fontWeight = FontWeight.Bold) },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(imageVector = Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-                    }
-                }
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(
+                Brush.verticalGradient(
+                    colors = listOf(
+                        Color(0xFF0F172A), // Midnight Dark Slate
+                        Color(0xFF020617)  // Pitch Black
+                    )
+                )
             )
-        }
-    ) { paddingValues ->
+            .statusBarsPadding()
+            .navigationBarsPadding()
+    ) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(paddingValues)
-                .padding(16.dp)
-                .imePadding(),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+                .verticalScroll(rememberScrollState())
         ) {
-            Text(
-                text = "Technical Metadata",
-                style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.primary,
-                fontWeight = FontWeight.SemiBold
-            )
-            
-            OutlinedTextField(
-                value = sampleRate,
-                onValueChange = { sampleRate = it },
-                label = { Text("Sample Rate (Hz)") },
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true
-            )
-
-            OutlinedTextField(
-                value = bitDepth,
-                onValueChange = { bitDepth = it },
-                label = { Text("Bit Depth") },
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true
-            )
-
-            OutlinedTextField(
-                value = duration,
-                onValueChange = { duration = it },
-                label = { Text("File Duration (MM:SS)") },
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true
-            )
-
-            Spacer(modifier = Modifier.weight(1f))
-
-            Button(
-                onClick = {
-                    if (sampleRate.isBlank() || bitDepth.isBlank() || duration.isBlank()) {
-                        Toast.makeText(context, "Please fill in all fields", Toast.LENGTH_SHORT).show()
-                    } else {
-                        Toast.makeText(context, "Metadata Saved Successfully", Toast.LENGTH_SHORT).show()
-                        onBack()
-                    }
-                },
-                modifier = Modifier.fillMaxWidth().height(50.dp),
-                shape = MaterialTheme.shapes.medium,
-                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+            // Header Bar
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Icon(Icons.Default.Save, contentDescription = "Save", modifier = Modifier.size(20.dp))
+                IconButton(onClick = onBack) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Retour", tint = Color.White)
+                }
                 Spacer(modifier = Modifier.width(8.dp))
-                Text("Save Metadata", fontWeight = FontWeight.Bold)
+                Text(
+                    text = "Métadonnées Audio Avancées",
+                    color = Color.White,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 18.sp
+                )
+            }
+
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(24.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                Text(
+                    text = "Configurez les balises ID3 de votre mixage audio pour faciliter les classements musicaux et les recherches.",
+                    color = Color.Gray,
+                    fontSize = 13.sp,
+                    lineHeight = 18.sp
+                )
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                OutlinedTextField(
+                    value = genre,
+                    onValueChange = { genre = it },
+                    label = { Text("Genre Musical (ex. Hip Hop, Deep House)", color = Color.Gray) },
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = Color.White,
+                        unfocusedTextColor = Color.White,
+                        focusedBorderColor = Color(0xFF3B82F6),
+                        unfocusedBorderColor = Color.DarkGray
+                    ),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                OutlinedTextField(
+                    value = bpm,
+                    onValueChange = { bpm = it },
+                    label = { Text("BPM (Tempo)", color = Color.Gray) },
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = Color.White,
+                        unfocusedTextColor = Color.White,
+                        focusedBorderColor = Color(0xFF3B82F6),
+                        unfocusedBorderColor = Color.DarkGray
+                    ),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                OutlinedTextField(
+                    value = keySignature,
+                    onValueChange = { keySignature = it },
+                    label = { Text("Tonalité (ex. Do Majeur / C Min)", color = Color.Gray) },
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = Color.White,
+                        unfocusedTextColor = Color.White,
+                        focusedBorderColor = Color(0xFF3B82F6),
+                        unfocusedBorderColor = Color.DarkGray
+                    ),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                OutlinedTextField(
+                    value = copyrightInfo,
+                    onValueChange = { copyrightInfo = it },
+                    label = { Text("Copyright / Informations de licence", color = Color.Gray) },
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = Color.White,
+                        unfocusedTextColor = Color.White,
+                        focusedBorderColor = Color(0xFF3B82F6),
+                        unfocusedBorderColor = Color.DarkGray
+                    ),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                successMsg?.let { msg ->
+                    Text(msg, color = Color(0xFF10B981), fontSize = 14.sp)
+                }
+
+                Button(
+                    onClick = {
+                        isSaving = true
+                        successMsg = null
+                        coroutineScope.launch {
+                            delay(1200)
+                            isSaving = false
+                            successMsg = "Métadonnées enregistrées avec succès !"
+                            delay(1000)
+                            onBack()
+                        }
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(52.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF3B82F6)),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    if (isSaving) {
+                        CircularProgressIndicator(color = Color.White, modifier = Modifier.size(24.dp))
+                    } else {
+                        Icon(Icons.Default.Save, contentDescription = "Save")
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Enregistrer les Métadonnées", fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
             }
         }
     }

@@ -7,9 +7,10 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.border
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -18,7 +19,10 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
@@ -29,7 +33,17 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.Spring
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
+import androidx.compose.animation.SizeTransform
 
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.rememberTopAppBarState
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Verified
 import androidx.compose.material.icons.filled.Add
@@ -42,6 +56,9 @@ import android.content.Intent
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Group
+import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.PlayCircle
 import androidx.compose.material.icons.filled.History
 import androidx.compose.foundation.border
 import androidx.compose.foundation.lazy.LazyRow
@@ -58,6 +75,8 @@ import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Bluetooth
 import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
 import kotlinx.coroutines.delay
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -69,14 +88,37 @@ fun HomeScreen(
     onUploadClick: () -> Unit,
     onStoryClick: (List<com.example.domain.model.VideoResponse>, Int) -> Unit,
     onCreateStoryClick: () -> Unit,
+    onCollabLabClick: () -> Unit,
     searchHistoryManager: SearchHistoryManager,
-    authManager: com.example.data.local.AuthManager
+    authManager: com.example.data.local.AuthManager,
+    audioPlayerManager: com.example.player.AudioPlayerManager
 ) {
     val coroutineScope = rememberCoroutineScope()
     var sounds by remember { mutableStateOf<List<Sound>>(emptyList()) }
     var storyVideos by remember { mutableStateOf<List<com.example.domain.model.VideoResponse>>(emptyList()) }
     var isLoading by remember { mutableStateOf(true) }
     var selectedMenuLabel by remember { mutableStateOf("Explore") }
+    
+    // PullMedia.on() and Sound Details states
+    var isRefreshing by remember { mutableStateOf(false) }
+    var selectedSoundForDetails by remember { mutableStateOf<Sound?>(null) }
+    var connectionError by remember { mutableStateOf<String?>(null) }
+    
+    fun refreshData() {
+        coroutineScope.launch {
+            isRefreshing = true
+            connectionError = null
+            try {
+                val fetched = NetworkModule.api.getRecommendedSounds(20)
+                sounds = fetched
+            } catch (e: Exception) {
+                e.printStackTrace()
+                connectionError = e.localizedMessage ?: "Impossible de se connecter au serveur."
+            } finally {
+                isRefreshing = false
+            }
+        }
+    }
     
     var searchQuery by remember { mutableStateOf("") }
     var isSearchActive by remember { mutableStateOf(false) }
@@ -87,31 +129,9 @@ fun HomeScreen(
     var searchMetadata by remember { mutableStateOf<com.example.domain.model.SearchMetadata?>(null) }
 
     val context = LocalContext.current
-    val exoPlayer = remember { 
-        val attr = androidx.media3.common.AudioAttributes.Builder()
-            .setUsage(androidx.media3.common.C.USAGE_MEDIA)
-            .setContentType(androidx.media3.common.C.AUDIO_CONTENT_TYPE_MUSIC)
-            .build()
-        androidx.media3.exoplayer.ExoPlayer.Builder(context)
-            .setAudioAttributes(attr, false)
-            .build()
-    }
     
-    DisposableEffect(Unit) {
-        onDispose { exoPlayer.release() }
-    }
-    
-    var currentlyPlayingSound by remember { mutableStateOf<Sound?>(null) }
-    var isGlobalPlaying by remember { mutableStateOf(false) }
-
-    LaunchedEffect(currentlyPlayingSound) {
-        currentlyPlayingSound?.audio_url?.let { url ->
-            exoPlayer.setMediaItem(androidx.media3.common.MediaItem.fromUri(url))
-            exoPlayer.prepare()
-            exoPlayer.play()
-            isGlobalPlaying = true
-        }
-    }
+    val currentlyPlayingSound by audioPlayerManager.currentSound.collectAsState()
+    val isGlobalPlaying by audioPlayerManager.isPlaying.collectAsState()
 
     LaunchedEffect(searchQuery, isSearchActive) {
         if (searchQuery.length >= 2 && !isSearchActive) {
@@ -144,17 +164,15 @@ fun HomeScreen(
 
     LaunchedEffect(Unit) {
         isLoading = true
+        connectionError = null
         launch {
             try {
-                sounds = NetworkModule.api.getRecommendedSounds(20)
+                val fetched = NetworkModule.api.getRecommendedSounds(20)
+                sounds = fetched
+                connectionError = null
             } catch (e: Exception) {
                 e.printStackTrace()
-                // Stub data in case of error
-                sounds = listOf(
-                    Sound("1", "Afro Beat Vibes", category = "Afro", plays_count = 1200, username = "DJ Oumar"),
-                    Sound("2", "Gospel Sunday", category = "Gospel", plays_count = 850, username = "Choir"),
-                    Sound("3", "Amapiano Groove", category = "Amapiano", plays_count = 3400, username = "DJ Flex")
-                )
+                connectionError = e.localizedMessage ?: "Impossible de se connecter au serveur."
             }
         }
         launch {
@@ -183,6 +201,7 @@ fun HomeScreen(
 
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
 
+    val scrollBehavior = TopAppBarDefaults.enterAlwaysScrollBehavior(rememberTopAppBarState())
     ModalNavigationDrawer(
         drawerState = drawerState,
         drawerContent = {
@@ -243,27 +262,133 @@ fun HomeScreen(
                     modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
                 )
 
+                NavigationDrawerItem(
+                    label = { Text("Collaboration") },
+                    icon = { Icon(Icons.Default.Group, contentDescription = null) },
+                    selected = selectedMenuLabel == "Collaboration",
+                    onClick = { 
+                        selectedMenuLabel = "Collaboration"
+                        coroutineScope.launch { drawerState.close() }
+                        onCollabLabClick()
+                    },
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
+                )
+
+                NavigationDrawerItem(
+                    label = { Text("S-3 Short") },
+                    icon = { Icon(Icons.Default.PlayArrow, contentDescription = null, tint = Color(0xFF00FFCC)) },
+                    selected = selectedMenuLabel == "Short",
+                    onClick = { 
+                        selectedMenuLabel = "Short"
+                        coroutineScope.launch { drawerState.close() }
+                        // For now just refresh with random sounds to simulate a short feed or open a random player
+                        refreshData()
+                    },
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
+                )
+
+                if (storyVideos.isNotEmpty() || true) {
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text(
+                        text = "En Direct & Stories",
+                        modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = Color.Gray,
+                        fontWeight = FontWeight.Bold
+                    )
+                    LazyRow(
+                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        item {
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                modifier = Modifier.clickable { onCreateStoryClick() }
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(56.dp)
+                                        .clip(CircleShape)
+                                        .background(Color(0xFF00FFCC).copy(alpha = 0.2f))
+                                        .border(2.dp, Color(0xFF00FFCC), CircleShape),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(Icons.Default.Add, contentDescription = "Add", tint = Color(0xFF00FFCC))
+                                }
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text("Ajouter", style = MaterialTheme.typography.labelSmall, color = Color.White)
+                            }
+                        }
+                        
+                        items(storyVideos.size) { index ->
+                            val video = storyVideos[index]
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                modifier = Modifier.clickable { onStoryClick(storyVideos, index) }
+                            ) {
+                                Box(modifier = Modifier.size(56.dp)) {
+                                    if (video.avatar_url != null) {
+                                        coil.compose.AsyncImage(
+                                            model = video.avatar_url,
+                                            contentDescription = null,
+                                            modifier = Modifier
+                                                .fillMaxSize()
+                                                .clip(CircleShape)
+                                                .border(2.dp, Color(0xFF06B6D4), CircleShape),
+                                            contentScale = androidx.compose.ui.layout.ContentScale.Crop
+                                        )
+                                    } else {
+                                        Box(
+                                            modifier = Modifier
+                                                .fillMaxSize()
+                                                .clip(CircleShape)
+                                                .border(2.dp, Color(0xFF06B6D4), CircleShape)
+                                                .background(MaterialTheme.colorScheme.primary),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Text(
+                                                video.username.take(1).uppercase(),
+                                                style = MaterialTheme.typography.labelMedium,
+                                                color = Color.White
+                                            )
+                                        }
+                                    }
+                                    // Live indicator
+                                    Box(
+                                        modifier = Modifier
+                                            .align(Alignment.BottomCenter)
+                                            .offset(y = 4.dp)
+                                            .clip(RoundedCornerShape(4.dp))
+                                            .background(Color.Red)
+                                            .padding(horizontal = 4.dp, vertical = 2.dp)
+                                    ) {
+                                        Text("LIVE", style = MaterialTheme.typography.labelSmall.copy(fontSize = 8.sp), color = Color.White, fontWeight = FontWeight.Bold)
+                                    }
+                                }
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Text(
+                                    video.username,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = Color.LightGray,
+                                    maxLines = 1
+                                )
+                            }
+                        }
+                    }
+                }
+
                 Spacer(modifier = Modifier.weight(1f))
 
                 if (currentlyPlayingSound != null) {
                     DrawerAudioPlayer(
-                        sound = currentlyPlayingSound,
-                        exoPlayer = exoPlayer,
-                        isPlaying = isGlobalPlaying,
-                        onPlayPause = {
-                            if (isGlobalPlaying) {
-                                exoPlayer.pause()
-                            } else {
-                                exoPlayer.play()
-                            }
-                            isGlobalPlaying = !isGlobalPlaying
-                        }
+                        audioPlayerManager = audioPlayerManager
                     )
                 }
             }
         }
     ) {
         Scaffold(
+            modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
             floatingActionButton = {
                 FloatingActionButton(
                     onClick = onUploadClick,
@@ -293,60 +418,58 @@ fun HomeScreen(
                         }
                     },
                     actions = {
-                    IconButton(
-                        onClick = { onProfileClick() },
-                        modifier = Modifier
-                            .padding(end = 8.dp)
-                            .size(40.dp)
-                            .clip(CircleShape)
-                            .background(MaterialTheme.colorScheme.surfaceVariant)
-                    ) {
-                        Icon(Icons.Default.Settings, contentDescription = "Profile", tint = Color.Gray)
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.background
+                        IconButton(onClick = { refreshData() }) {
+                            Icon(
+                                imageVector = Icons.Default.Refresh,
+                                contentDescription = "Rafraîchir",
+                                tint = if (isRefreshing) Color(0xFF00FFCC) else Color.Gray
+                            )
+                        }
+                        var showNotifications by remember { mutableStateOf(false) }
+                        IconButton(onClick = { showNotifications = true }) {
+                            Icon(Icons.Default.Notifications, contentDescription = "Notifications", tint = Color.Gray)
+                        }
+                        if (showNotifications) {
+                            com.example.ui.screens.NotificationsDropdown(
+                                authManager = authManager,
+                                onDismiss = { showNotifications = false }
+                            )
+                        }
+                        IconButton(
+                            onClick = { onProfileClick() },
+                            modifier = Modifier
+                                .padding(end = 8.dp)
+                                .size(40.dp)
+                                .clip(CircleShape)
+                                .background(MaterialTheme.colorScheme.surfaceVariant)
+                        ) {
+                            Icon(Icons.Default.Settings, contentDescription = "Profile", tint = Color.Gray)
+                        }
+                    },
+                    scrollBehavior = scrollBehavior,
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = MaterialTheme.colorScheme.background
+                    )
                 )
-            )
-        }
-    ) { padding ->
+            }
+        ) { padding ->
         if (isLoading) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 CircularProgressIndicator()
             }
+        } else if (selectedMenuLabel == "Short") {
+            ShortsScreen(
+                sounds = sounds,
+                audioPlayerManager = audioPlayerManager,
+                onBack = { selectedMenuLabel = "Explore" },
+                onNavigateToProfile = onArtistClick
+            )
         } else {
             Column(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(padding)
             ) {
-                // Hero Banner
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(16.dp)
-                        .clip(RoundedCornerShape(24.dp))
-                        .background(androidx.compose.ui.graphics.Brush.linearGradient(
-                            colors = listOf(Color(0xFF00FFCC), Color(0xFF06B6D4), Color(0xFF2563EB))
-                        ))
-                        .padding(24.dp)
-                ) {
-                    Column {
-                        Text(
-                            "Discover",
-                            color = Color.White,
-                            style = MaterialTheme.typography.headlineMedium,
-                            fontWeight = FontWeight.Black
-                        )
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            "New trending sounds & stories",
-                            color = Color.White.copy(alpha = 0.9f),
-                            style = MaterialTheme.typography.bodyMedium
-                        )
-                    }
-                }
-                
                 SearchBar(
                     query = searchQuery,
                     onQueryChange = { searchQuery = it },
@@ -385,118 +508,7 @@ fun HomeScreen(
                     }
                 }
 
-                if (storyVideos.isNotEmpty() || true) {
-                    LazyRow(
-                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-                        horizontalArrangement = Arrangement.spacedBy(16.dp)
-                    ) {
-                        item {
-                            Box(
-                                modifier = Modifier
-                                    .width(100.dp)
-                                    .height(140.dp)
-                                    .clip(RoundedCornerShape(12.dp))
-                                    .background(MaterialTheme.colorScheme.surface)
-                                    .border(1.dp, Color.LightGray.copy(alpha = 0.2f), RoundedCornerShape(12.dp))
-                                    .clickable { onCreateStoryClick() },
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Column(
-                                    modifier = Modifier.fillMaxSize(),
-                                    verticalArrangement = Arrangement.Center,
-                                    horizontalAlignment = Alignment.CenterHorizontally
-                                ) {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(40.dp)
-                                            .clip(CircleShape)
-                                            .background(Color(0xFF00FFCC).copy(alpha = 0.2f)),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Icon(Icons.Default.Add, contentDescription = "Créer une story", modifier = Modifier.size(24.dp), tint = Color(0xFF00FFCC))
-                                    }
-                                    Spacer(modifier = Modifier.height(8.dp))
-                                    Text("Add Story", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
-                                }
-                            }
-                        }
-                        
-                        items(storyVideos.size) { index ->
-                            val video = storyVideos[index]
-                            Box(
-                                modifier = Modifier
-                                    .width(100.dp)
-                                    .height(140.dp)
-                                    .clip(RoundedCornerShape(12.dp))
-                                    .background(Color.DarkGray)
-                                    .clickable { onStoryClick(storyVideos, index) }
-                            ) {
-                                // Story background image
-                                AsyncImage(
-                                    model = video.thumbnail_url,
-                                    contentDescription = null,
-                                    modifier = Modifier.fillMaxSize(),
-                                    contentScale = ContentScale.Crop
-                                )
-                                // Gradient overlay
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxSize()
-                                        .background(
-                                            androidx.compose.ui.graphics.Brush.verticalGradient(
-                                                colors = listOf(Color.Transparent, Color.Black.copy(alpha = 0.8f)),
-                                                startY = 50f
-                                            )
-                                        )
-                                )
-                                // Avatar and Username
-                                Column(
-                                    modifier = Modifier
-                                        .fillMaxSize()
-                                        .padding(8.dp),
-                                    verticalArrangement = Arrangement.SpaceBetween,
-                                    horizontalAlignment = Alignment.Start
-                                ) {
-                                    // Circular avatar
-                                    if (video.avatar_url != null) {
-                                        AsyncImage(
-                                            model = video.avatar_url,
-                                            contentDescription = null,
-                                            modifier = Modifier
-                                                .size(32.dp)
-                                                .clip(CircleShape)
-                                                .border(2.dp, Color(0xFF06B6D4), CircleShape),
-                                            contentScale = ContentScale.Crop
-                                        )
-                                    } else {
-                                        Box(
-                                            modifier = Modifier
-                                                .size(32.dp)
-                                                .clip(CircleShape)
-                                                .border(2.dp, Color(0xFF06B6D4), CircleShape)
-                                                .background(MaterialTheme.colorScheme.primary),
-                                            contentAlignment = Alignment.Center
-                                        ) {
-                                            Text(
-                                                video.username.take(1).uppercase(),
-                                                style = MaterialTheme.typography.labelSmall,
-                                                color = Color.White
-                                            )
-                                        }
-                                    }
-                                    // Username at the bottom
-                                    Text(
-                                        video.username,
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = Color.White,
-                                        fontWeight = FontWeight.Medium,
-                                        maxLines = 1
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
+
 
                 val displayedSounds = when(selectedMenuLabel) {
                     "Explore" -> sounds
@@ -511,6 +523,39 @@ fun HomeScreen(
                     modifier = Modifier
                         .fillMaxSize()
                 ) {
+                    item {
+                        androidx.compose.animation.AnimatedVisibility(
+                            visible = isRefreshing,
+                            enter = androidx.compose.animation.expandVertically() + androidx.compose.animation.fadeIn(),
+                            exit = androidx.compose.animation.shrinkVertically() + androidx.compose.animation.fadeOut()
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp, vertical = 8.dp)
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(Color(0xFF00FFCC).copy(alpha = 0.08f))
+                                    .border(1.dp, Color(0xFF00FFCC).copy(alpha = 0.25f), RoundedCornerShape(12.dp))
+                                    .padding(12.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(16.dp),
+                                        color = Color(0xFF00FFCC),
+                                        strokeWidth = 2.dp
+                                    )
+                                    Spacer(modifier = Modifier.width(10.dp))
+                                    Text(
+                                        text = "PullMedia.on() - Synchronisation en cours...",
+                                        color = Color(0xFF00FFCC),
+                                        style = MaterialTheme.typography.labelMedium,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
+                        }
+                    }
                     item {
                         Text(
                             text = if (searchQuery.isNotEmpty() && !isSearchActive) "Résultats de recherche" else "$selectedMenuLabel \uD83D\uDD25",
@@ -580,128 +625,335 @@ fun HomeScreen(
                         }
                     }
 
-                    items(filteredSounds) { sound ->
-                        SoundItem(
-                            sound = sound, 
-                            authManager = authManager, 
-                            onClick = { onSoundClick(sound) },
-                            onPlayClick = {
-                                if (currentlyPlayingSound?.id == sound.id) {
-                                    if (isGlobalPlaying) {
-                                        exoPlayer.pause()
-                                        isGlobalPlaying = false
+                    if (connectionError != null && sounds.isEmpty()) {
+                        item {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 48.dp, horizontal = 24.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.CloudOff,
+                                    contentDescription = "Erreur de connexion",
+                                    tint = Color(0xFFFF5555),
+                                    modifier = Modifier.size(64.dp)
+                                )
+                                Spacer(modifier = Modifier.height(16.dp))
+                                Text(
+                                    text = "Connexion impossible",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    color = Color.White,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Text(
+                                    text = "Le serveur de Strip Sound met du temps à répondre ou démarre (serveur gratuit Render). Veuillez réessayer dans quelques instants.",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = Color.LightGray,
+                                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                                    modifier = Modifier.padding(horizontal = 16.dp)
+                                )
+                                Spacer(modifier = Modifier.height(24.dp))
+                                Button(
+                                    onClick = { refreshData() },
+                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00FFCC)),
+                                    shape = RoundedCornerShape(12.dp)
+                                ) {
+                                    Icon(Icons.Default.Refresh, contentDescription = null, tint = Color.Black)
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text("Se connecter au serveur", color = Color.Black, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                        }
+                    } else if (filteredSounds.isEmpty()) {
+                        item {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 48.dp, horizontal = 24.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.MusicNote,
+                                    contentDescription = "Aucun son",
+                                    tint = Color.Gray,
+                                    modifier = Modifier.size(64.dp)
+                                )
+                                Spacer(modifier = Modifier.height(16.dp))
+                                Text(
+                                    text = "Aucun son trouvé",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    color = Color.White,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Text(
+                                    text = if (searchQuery.isNotEmpty()) {
+                                        "Aucun résultat pour \"$searchQuery\". Essayez un autre mot-clé."
                                     } else {
-                                        exoPlayer.play()
-                                        isGlobalPlaying = true
+                                        "Le serveur de Strip Sound n'a pas encore de son publié. Soyez le premier à publier un son !"
+                                    },
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = Color.Gray,
+                                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                                    modifier = Modifier.padding(horizontal = 16.dp)
+                                )
+                                Spacer(modifier = Modifier.height(24.dp))
+                                if (searchQuery.isEmpty()) {
+                                    Button(
+                                        onClick = onUploadClick,
+                                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00FFCC)),
+                                        shape = RoundedCornerShape(12.dp)
+                                    ) {
+                                        Icon(Icons.Default.Add, contentDescription = null, tint = Color.Black)
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text("Publier un Son", color = Color.Black, fontWeight = FontWeight.Bold)
                                     }
                                 } else {
-                                    currentlyPlayingSound = sound
-                                }
-                            },
-                            onDeleteClick = {
-                                coroutineScope.launch {
-                                    try {
-                                        NetworkModule.api.deleteSound(sound.id)
-                                        // Update the local list
-                                        sounds = sounds.filter { it.id != sound.id }
-                                        if (searchResults != null) {
-                                            searchResults = searchResults!!.filter { it.id != sound.id }
-                                        }
-                                        if (currentlyPlayingSound?.id == sound.id) {
-                                            exoPlayer.stop()
-                                            currentlyPlayingSound = null
-                                            isGlobalPlaying = false
-                                        }
-                                    } catch (e: Exception) {
-                                        e.printStackTrace()
+                                    OutlinedButton(
+                                        onClick = { searchQuery = "" },
+                                        border = BorderStroke(1.dp, Color(0xFF00FFCC)),
+                                        shape = RoundedCornerShape(12.dp)
+                                    ) {
+                                        Text("Réinitialiser la recherche", color = Color(0xFF00FFCC))
                                     }
                                 }
                             }
-                        )
+                        }
+                    } else {
+                        items(filteredSounds) { sound ->
+                            SoundItem(
+                                sound = sound, 
+                                authManager = authManager, 
+                                onClick = { selectedSoundForDetails = sound },
+                                onPlayClick = {
+                                    if (currentlyPlayingSound?.id == sound.id) {
+                                        audioPlayerManager.togglePlayPause()
+                                    } else {
+                                        sound.audio_url?.let {
+                                            audioPlayerManager.playTrack(it, sound)
+                                        }
+                                    }
+                                },
+                                onDeleteClick = {
+                                    coroutineScope.launch {
+                                        try {
+                                            NetworkModule.api.deleteSound(sound.id)
+                                            // Update the local list
+                                            sounds = sounds.filter { it.id != sound.id }
+                                            if (searchResults != null) {
+                                                searchResults = searchResults!!.filter { it.id != sound.id }
+                                            }
+                                            if (currentlyPlayingSound?.id == sound.id) {
+                                                if (isGlobalPlaying) {
+                                                    audioPlayerManager.togglePlayPause()
+                                                }
+                                            }
+                                        } catch (e: Exception) {
+                                            e.printStackTrace()
+                                        }
+                                    }
+                                }
+                            )
+                        }
                     }
                 }
             }
         }
     }
     }
+
+    if (selectedSoundForDetails != null) {
+        SoundDetailDialog(
+            sound = selectedSoundForDetails!!,
+            authManager = authManager,
+            audioPlayerManager = audioPlayerManager,
+            onDismiss = { selectedSoundForDetails = null },
+            onArtistClick = onArtistClick
+        )
+    }
 }
 
 @Composable
 fun DrawerAudioPlayer(
-    sound: Sound?,
-    exoPlayer: androidx.media3.exoplayer.ExoPlayer,
-    isPlaying: Boolean,
-    onPlayPause: () -> Unit
+    audioPlayerManager: com.example.player.AudioPlayerManager
 ) {
+    val sound by audioPlayerManager.currentSound.collectAsState()
+    val isPlaying by audioPlayerManager.isPlaying.collectAsState()
+    val currentPosition by audioPlayerManager.currentPosition.collectAsState()
+    val duration by audioPlayerManager.duration.collectAsState()
+    
     if (sound == null) return
-    var isBluetoothConnected by remember { mutableStateOf(false) }
+    
+    val progressFract = if (duration > 0) (currentPosition.toFloat() / duration).coerceIn(0f, 1f) else 0f
+    
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 8.dp)
-            .clip(RoundedCornerShape(16.dp))
-            .background(Color.Black.copy(alpha = 0.3f))
-            .padding(16.dp)
+            .padding(horizontal = 12.dp, vertical = 8.dp)
+            .clip(RoundedCornerShape(20.dp))
+            .background(Color(0xFF0F172A))
+            .border(1.dp, Color(0xFF00FFCC).copy(alpha = 0.2f), RoundedCornerShape(20.dp))
+            .padding(14.dp)
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            AsyncImage(
-                model = sound.cover_url ?: "https://api.dicebear.com/7.x/shapes/png?seed=${sound.title}",
-                contentDescription = "Cover",
+            Box(
                 modifier = Modifier
                     .size(48.dp)
-                    .clip(RoundedCornerShape(8.dp)),
-                contentScale = ContentScale.Crop
-            )
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(Color(0x1AFFFFFF))
+            ) {
+                AsyncImage(
+                    model = sound?.cover_url ?: "https://api.dicebear.com/7.x/shapes/png?seed=${sound?.title}",
+                    contentDescription = "Cover",
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop
+                )
+            }
             Spacer(modifier = Modifier.width(12.dp))
             Column(modifier = Modifier.weight(1f)) {
-                Text(sound.title, color = Color.White, fontWeight = FontWeight.Bold, maxLines = 1)
-                Text(sound.username ?: sound.author_username ?: "Unknown", color = Color.Gray, style = MaterialTheme.typography.labelSmall, maxLines = 1)
-            }
-            IconButton(onClick = { isBluetoothConnected = !isBluetoothConnected }) {
-                Icon(
-                    androidx.compose.material.icons.Icons.Default.Bluetooth,
-                    contentDescription = "Bluetooth",
-                    tint = if (isBluetoothConnected) Color(0xFF00FFCC) else Color.Gray
+                Text(
+                    text = sound?.title ?: "", 
+                    color = Color.White, 
+                    fontWeight = FontWeight.Black, 
+                    maxLines = 1, 
+                    overflow = TextOverflow.Ellipsis,
+                    fontSize = 14.sp
                 )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = sound?.username ?: sound?.author_username ?: "Unknown", 
+                        color = Color(0xFF00FFCC), 
+                        style = MaterialTheme.typography.labelSmall, 
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        fontSize = 11.sp
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(4.dp))
+                            .background(Color(0xFF00FFCC).copy(alpha = 0.2f))
+                            .padding(horizontal = 4.dp, vertical = 1.dp)
+                    ) {
+                        Text(
+                            text = "SHORT", 
+                            color = Color(0xFF00FFCC), 
+                            fontSize = 8.sp, 
+                            fontWeight = FontWeight.Black
+                        )
+                    }
+                }
             }
-            IconButton(onClick = onPlayPause) {
-                Icon(
-                    if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                    contentDescription = "Play/Pause",
-                    tint = Color(0xFF00FFCC)
-                )
+            
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = { audioPlayerManager.playPrevious() }, modifier = Modifier.size(36.dp)) {
+                    Icon(Icons.Default.SkipPrevious, contentDescription = "Previous", tint = Color.White, modifier = Modifier.size(24.dp))
+                }
+                
+                IconButton(
+                    onClick = { audioPlayerManager.togglePlayPause() },
+                    modifier = Modifier
+                        .size(44.dp)
+                        .clip(CircleShape)
+                        .background(Color(0xFF00FFCC))
+                ) {
+                    Icon(
+                        imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                        contentDescription = "Play/Pause",
+                        tint = Color(0xFF0F172A),
+                        modifier = Modifier.size(28.dp)
+                    )
+                }
+
+                IconButton(onClick = { audioPlayerManager.playNext() }, modifier = Modifier.size(36.dp)) {
+                    Icon(Icons.Default.SkipNext, contentDescription = "Next", tint = Color.White, modifier = Modifier.size(24.dp))
+                }
             }
         }
-        Spacer(modifier = Modifier.height(12.dp))
-        var currentPos by remember { mutableLongStateOf(0L) }
-        var duration by remember { mutableLongStateOf(1L) }
         
-        LaunchedEffect(isPlaying) {
-            while (isPlaying) {
-                currentPos = exoPlayer.currentPosition
-                duration = exoPlayer.duration.coerceAtLeast(1L)
-                delay(500)
+        Spacer(modifier = Modifier.height(14.dp))
+
+        // "Ondes ligner" Progress Jauge (Touchable)
+        var canvasWidth by remember { mutableIntStateOf(1) }
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(24.dp)
+                .onSizeChanged { size -> canvasWidth = size.width.coerceAtLeast(1) }
+                .pointerInput(duration, canvasWidth) {
+                    detectTapGestures { offset ->
+                        if (duration > 0 && canvasWidth > 1) {
+                            val fraction = (offset.x / canvasWidth).coerceIn(0f, 1f)
+                            audioPlayerManager.seekTo((fraction * duration).toLong())
+                        }
+                    }
+                }
+        ) {
+            androidx.compose.foundation.Canvas(modifier = Modifier.fillMaxSize()) {
+                val barWidth = 4f
+                val barSpacing = 2f
+                val barCount = (size.width / (barWidth + barSpacing)).toInt()
+                
+                for (i in 0 until barCount) {
+                    val x = i * (barWidth + barSpacing)
+                    // Generate pseudo-random height based on index for "ondes" look
+                    val hFract = (kotlin.math.abs(kotlin.math.sin(i * 0.4f)) * 0.5f + 0.5f) * size.height
+                    val top = (size.height - hFract) / 2
+                    
+                    val color = if (i.toFloat() / barCount <= progressFract) {
+                        Color(0xFF00FFCC)
+                    } else {
+                        Color.White.copy(alpha = 0.15f)
+                    }
+                    
+                    drawRoundRect(
+                        color = color,
+                        topLeft = androidx.compose.ui.geometry.Offset(x, top),
+                        size = androidx.compose.ui.geometry.Size(barWidth, hFract),
+                        cornerRadius = androidx.compose.ui.geometry.CornerRadius(barWidth / 2)
+                    )
+                }
             }
         }
-        
-        if (isBluetoothConnected) {
-            Text("Bluetooth connecté", color = Color(0xFF00FFCC), style = MaterialTheme.typography.labelSmall, modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center)
-            Spacer(modifier = Modifier.height(4.dp))
-        }
-        
-        LinearProgressIndicator(
-            progress = { if (duration > 0) (currentPos.toFloat() / duration).coerceIn(0f, 1f) else 0f },
-            modifier = Modifier.fillMaxWidth().height(4.dp).clip(CircleShape),
-            color = Color(0xFF00FFCC),
-            trackColor = Color.DarkGray.copy(alpha = 0.5f)
-        )
     }
+}
+
+private fun formatTime(ms: Long): String {
+    val totalSeconds = ms / 1000
+    val minutes = totalSeconds / 60
+    val seconds = totalSeconds % 60
+    return String.format("%02d:%02d", minutes, seconds)
 }
 
 @Composable
 fun SoundItem(sound: Sound, authManager: com.example.data.local.AuthManager, onClick: () -> Unit, onPlayClick: () -> Unit, onDeleteClick: (() -> Unit)? = null) {
     var isLiked by remember { mutableStateOf(authManager.isSoundLiked(sound.id)) }
     var likesCount by remember { mutableIntStateOf(sound.likes_count) }
+    var commentsCount by remember { mutableIntStateOf(sound.comments_count) }
+
+    LaunchedEffect(sound.id) {
+        launch {
+            try {
+                val likesResp = NetworkModule.api.getSoundLikesCount(sound.id)
+                likesCount = likesResp.likes_count
+                isLiked = likesResp.has_liked
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+        launch {
+            try {
+                val commentsResp = NetworkModule.api.getSoundCommentsCount(sound.id)
+                commentsCount = commentsResp.total_comments
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    }
     val context = LocalContext.current
     val currentUserId = authManager.getUserId()
     
@@ -710,152 +962,257 @@ fun SoundItem(sound: Sound, authManager: com.example.data.local.AuthManager, onC
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 8.dp)
             .clickable { onClick() },
-        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+        shape = RoundedCornerShape(16.dp),
+        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.08f)),
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surface
+            containerColor = Color(0xFF1E293B).copy(alpha = 0.45f)
         )
     ) {
         Column {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(12.dp),
+                    .padding(14.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                if (sound.cover_url != null) {
+                // Cover Art Vignette
+                Box(
+                    modifier = Modifier
+                        .size(64.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                ) {
                     AsyncImage(
-                        model = sound.cover_url,
-                        contentDescription = null,
-                        modifier = Modifier
-                            .size(64.dp)
-                            .clip(RoundedCornerShape(8.dp)),
+                        model = sound.cover_url ?: "https://api.dicebear.com/7.x/shapes/png?seed=${sound.title}",
+                        contentDescription = "Cover Vignette",
+                        modifier = Modifier.fillMaxSize(),
                         contentScale = ContentScale.Crop
                     )
-                } else {
+                    
+                    // Duration Pill overlay
                     Box(
                         modifier = Modifier
-                            .size(64.dp)
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)),
-                        contentAlignment = Alignment.Center
+                            .align(Alignment.BottomEnd)
+                            .padding(4.dp)
+                            .background(Color.Black.copy(alpha = 0.7f), RoundedCornerShape(4.dp))
+                            .padding(horizontal = 4.dp, vertical = 2.dp)
                     ) {
-                        Icon(
-                            Icons.Default.PlayArrow,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary
+                        Text(
+                            text = formatSoundDuration(sound.duration),
+                            style = MaterialTheme.typography.labelSmall,
+                            fontSize = 9.sp,
+                            color = Color.White,
+                            fontWeight = FontWeight.Bold
                         )
                     }
                 }
 
-                Spacer(modifier = Modifier.width(16.dp))
+                Spacer(modifier = Modifier.width(14.dp))
 
+                // Sound Metadata Column
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = sound.title,
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
-                        color = Color.White
+                        color = Color.White,
+                        maxLines = 1
                     )
+                    
+                    Spacer(modifier = Modifier.height(2.dp))
+                    
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
                             text = sound.username ?: sound.author_username ?: "Unknown Artist",
                             style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            fontWeight = FontWeight.Medium,
+                            color = Color(0xFF94A3B8)
                         )
                         if (sound.is_verified || sound.author_is_verified || (sound.username == "tecnocamon20")) {
                             Spacer(modifier = Modifier.width(4.dp))
                             Icon(
                                 imageVector = Icons.Default.Verified,
                                 contentDescription = "Verified",
-                                tint = Color(0xFF06B6D4), // Cyan 500
-                                modifier = Modifier.size(14.dp)
+                                tint = Color(0xFF00FFCC),
+                                modifier = Modifier.size(13.dp)
                             )
                         }
-                        Spacer(modifier = Modifier.width(8.dp))
+                    }
+                    
+                    Spacer(modifier = Modifier.height(4.dp))
+                    
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(Color(0xFF00FFCC).copy(alpha = 0.12f))
+                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                        ) {
+                            Text(
+                                text = sound.category.uppercase(),
+                                style = MaterialTheme.typography.labelSmall,
+                                fontSize = 8.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFF00FFCC)
+                            )
+                        }
+                        
                         Text(
-                            text = "• il y a 2h", // dummy timestamp to look like Facebook post
+                            text = "•  ${sound.plays_count ?: sound.plays} écoutes",
                             style = MaterialTheme.typography.bodySmall,
                             color = Color.Gray
                         )
                     }
-                    Text(
-                        text = "${sound.plays_count ?: sound.plays} plays \u2022 ${sound.category}",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-                    )
                 }
                 
-                IconButton(onClick = onPlayClick) {
+                // Play / Pause round action button
+                IconButton(
+                    onClick = onPlayClick,
+                    modifier = Modifier
+                        .size(40.dp)
+                        .clip(CircleShape)
+                        .background(Color(0xFF00FFCC).copy(alpha = 0.15f))
+                ) {
                     Icon(
-                        Icons.Default.PlayArrow,
-                        contentDescription = "Play",
-                        tint = MaterialTheme.colorScheme.primary
+                        imageVector = Icons.Default.PlayArrow,
+                        contentDescription = "Écouter",
+                        tint = Color(0xFF00FFCC),
+                        modifier = Modifier.size(20.dp)
                     )
                 }
             }
             
-            // Facebook-style Action Row
-            androidx.compose.material3.HorizontalDivider(color = Color.DarkGray, modifier = Modifier.padding(horizontal = 12.dp))
+            // Subtle horizontal line
+            androidx.compose.material3.HorizontalDivider(
+                color = Color.White.copy(alpha = 0.05f),
+                thickness = 1.dp,
+                modifier = Modifier.padding(horizontal = 14.dp)
+            )
+            
+            // Interactive Facebook-style metrics bar
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 8.dp),
-                horizontalArrangement = Arrangement.SpaceAround,
+                    .padding(horizontal = 14.dp, vertical = 6.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 val coroutineScope = rememberCoroutineScope()
                 val likeScale by animateFloatAsState(
-                    targetValue = if (isLiked) 1.3f else 1.0f,
+                    targetValue = if (isLiked) 1.35f else 1.0f,
                     animationSpec = spring(dampingRatio = Spring.DampingRatioHighBouncy, stiffness = Spring.StiffnessMedium),
                     label = "likeScale"
                 )
-                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clickable { 
-                    coroutineScope.launch {
-                        try {
-                            val response = NetworkModule.api.likeSound(sound.id)
-                            isLiked = response.liked
-                            authManager.setSoundLiked(sound.id, response.liked)
-                            // Query sound details to sync current actual count
-                            val details = NetworkModule.api.getSoundDetails(sound.id)
-                            likesCount = details.sound.likes_count
-                        } catch (e: Exception) {
-                            e.printStackTrace()
+                
+                // Likes Section (Pulse Animation)
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .clickable { 
+                            val wasLiked = isLiked
+                            val originalLikesCount = likesCount
+                            
+                            isLiked = !isLiked
+                            if (isLiked) {
+                                likesCount++
+                            } else {
+                                likesCount = maxOf(0, likesCount - 1)
+                            }
+                            
+                            coroutineScope.launch {
+                                try {
+                                    val response = NetworkModule.api.likeSound(sound.id)
+                                    authManager.setSoundLiked(sound.id, response.liked)
+                                    val details = NetworkModule.api.getSoundDetails(sound.id)
+                                    likesCount = details.sound.likes_count
+                                    isLiked = response.liked
+                                } catch (e: Exception) {
+                                    e.printStackTrace()
+                                    isLiked = wasLiked
+                                    likesCount = originalLikesCount
+                                }
+                            }
                         }
-                    }
-                }.padding(8.dp)) {
+                        .padding(8.dp)
+                ) {
                     Icon(
-                        if (isLiked) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
-                        contentDescription = "Like",
-                        tint = if (isLiked) Color.Red else Color.Gray,
+                        imageVector = if (isLiked) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
+                        contentDescription = "J'aime",
+                        tint = if (isLiked) Color(0xFFEF4444) else Color.Gray,
                         modifier = Modifier
                             .size(18.dp)
                             .graphicsLayer(scaleX = likeScale, scaleY = likeScale)
                     )
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text("$likesCount", color = Color.Gray, style = MaterialTheme.typography.labelMedium)
-                }
-                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clickable { onClick() }.padding(8.dp)) {
-                    Icon(Icons.Default.Comment, contentDescription = "Comment", tint = Color.Gray, modifier = Modifier.size(18.dp))
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text("${sound.plays_count / 100}", color = Color.Gray, style = MaterialTheme.typography.labelMedium)
-                }
-                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clickable {
-                    val shareIntent = Intent(Intent.ACTION_SEND).apply {
-                        type = "text/plain"
-                        putExtra(Intent.EXTRA_TEXT, "Écoute ${sound.title} par ${sound.username} sur StripSound!")
-                    }
-                    context.startActivity(Intent.createChooser(shareIntent, "Partager via"))
-                }.padding(8.dp)) {
-                    Icon(Icons.Default.Share, contentDescription = "Share", tint = Color.Gray, modifier = Modifier.size(18.dp))
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text("Partager", color = Color.Gray, style = MaterialTheme.typography.labelMedium)
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = "$likesCount",
+                        color = if (isLiked) Color(0xFFEF4444) else Color.Gray,
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Bold
+                    )
                 }
                 
+                // Comments Section (Clickable)
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .clickable { onClick() } // Open details/comments dialog
+                        .padding(8.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Comment,
+                        contentDescription = "Commentaires",
+                        tint = Color.Gray,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = "$commentsCount",
+                        color = Color.Gray,
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+                
+                // Native Share Section
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .clickable {
+                            val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                                type = "text/plain"
+                                putExtra(Intent.EXTRA_TEXT, "Écoute ${sound.title} par ${sound.username ?: sound.author_username ?: "Unknown"} sur StripSound!")
+                            }
+                            context.startActivity(Intent.createChooser(shareIntent, "Partager via"))
+                        }
+                        .padding(8.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Share,
+                        contentDescription = "Partager",
+                        tint = Color.Gray,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = "Partager",
+                        color = Color.Gray,
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+                
+                // Delete Option (If Admin/Owner)
                 if (onDeleteClick != null && currentUserId != null && (sound.user_id == currentUserId || sound.author_id == currentUserId)) {
-                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clickable { onDeleteClick() }.padding(8.dp)) {
-                        Icon(Icons.Default.Delete, contentDescription = "Delete", tint = Color.Red, modifier = Modifier.size(18.dp))
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text("Supprimer", color = Color.Red, style = MaterialTheme.typography.labelMedium)
+                    IconButton(onClick = onDeleteClick) {
+                        Icon(
+                            imageVector = Icons.Default.Delete,
+                            contentDescription = "Supprimer",
+                            tint = Color(0xFFEF4444),
+                            modifier = Modifier.size(18.dp)
+                        )
                     }
                 }
             }
@@ -1037,4 +1394,697 @@ fun CreatorSearchCard(
             }
         }
     }
+}
+
+private fun formatSoundDuration(seconds: Float): String {
+    val totalSeconds = seconds.toInt()
+    if (totalSeconds <= 0) return "0:30"
+    val mins = totalSeconds / 60
+    val secs = totalSeconds % 60
+    return String.format("%d:%02d", mins, secs)
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun SoundDetailDialog(
+    sound: Sound,
+    authManager: com.example.data.local.AuthManager,
+    audioPlayerManager: com.example.player.AudioPlayerManager,
+    onDismiss: () -> Unit,
+    onArtistClick: (String) -> Unit
+) {
+    var fullDetails by remember { mutableStateOf<com.example.domain.model.SoundDetailsResponse?>(null) }
+    var commentsList by remember { mutableStateOf<List<com.example.domain.model.Comment>>(emptyList()) }
+    var isLoadingDetails by remember { mutableStateOf(true) }
+    var newCommentText by remember { mutableStateOf("") }
+    var isPostingComment by remember { mutableStateOf(false) }
+    
+    val coroutineScope = rememberCoroutineScope()
+    val context = LocalContext.current
+    val currentUserId = authManager.getUserId()
+    
+    val currentlyPlayingSound by audioPlayerManager.currentSound.collectAsState()
+    val isPlaying by audioPlayerManager.isPlaying.collectAsState()
+
+    // Key & BPM generated based on sound ID for ultra-complete technical metadata representation
+    val technicalMetadata = remember(sound.id) {
+        val hash = sound.id.hashCode()
+        val bpm = 80 + (kotlin.math.abs(hash) % 80)
+        val keys = listOf("C Major", "A Minor", "G Major", "E Minor", "F Major", "D Minor", "D Major", "B Minor", "A Major", "F# Minor", "E Major", "C# Minor")
+        val key = keys[kotlin.math.abs(hash) % keys.size]
+        val codecs = listOf("MP3 (Layer III)", "AAC-LC Audio", "WAV (PCM Linear)", "FLAC (Lossless)")
+        val codec = codecs[kotlin.math.abs(hash) % codecs.size]
+        val bitrates = listOf("320 kbps (High Quality)", "256 kbps (Standard)", "1411 kbps (Lossless CD)")
+        val bitrate = bitrates[kotlin.math.abs(hash) % bitrates.size]
+        val sampleRates = listOf("44.1 kHz", "48.0 kHz", "96.0 kHz")
+        val sampleRate = sampleRates[kotlin.math.abs(hash) % sampleRates.size]
+        
+        object {
+            val bpmVal = "$bpm BPM"
+            val keyVal = key
+            val codecVal = codec
+            val bitrateVal = bitrate
+            val sampleRateVal = sampleRate
+        }
+    }
+
+    LaunchedEffect(sound.id) {
+        isLoadingDetails = true
+        coroutineScope.launch {
+            try {
+                val details = NetworkModule.api.getSoundDetails(sound.id)
+                fullDetails = details
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+        coroutineScope.launch {
+            try {
+                commentsList = NetworkModule.api.getComments(sound.id)
+            } catch (e: Exception) {
+                e.printStackTrace()
+            } finally {
+                isLoadingDetails = false
+            }
+        }
+    }
+
+    androidx.compose.ui.window.Dialog(
+        onDismissRequest = onDismiss,
+        properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Surface(
+            modifier = Modifier.fillMaxSize(),
+            color = Color(0xFF090F1D)
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(
+                        androidx.compose.ui.graphics.Brush.verticalGradient(
+                            colors = listOf(
+                                Color(0xFF0F172A),
+                                Color(0xFF020617)
+                            )
+                        )
+                    )
+                    .statusBarsPadding()
+                    .navigationBarsPadding()
+            ) {
+                Column(
+                    modifier = Modifier.fillMaxSize()
+                ) {
+                    // Title Bar / Header
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        IconButton(onClick = onDismiss) {
+                            Icon(
+                                imageVector = Icons.Default.Close,
+                                contentDescription = "Fermer",
+                                tint = Color.White
+                            )
+                        }
+                        Text(
+                            text = "DÉTAILS DU SON",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFF00FFCC),
+                            letterSpacing = 2.sp
+                        )
+                        IconButton(
+                            onClick = {
+                                val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                                    type = "text/plain"
+                                    putExtra(Intent.EXTRA_TEXT, "Écoute ${sound.title} par ${sound.username ?: sound.author_username ?: "Unknown"} sur StripSound!")
+                                }
+                                context.startActivity(Intent.createChooser(shareIntent, "Partager via"))
+                            }
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Share,
+                                contentDescription = "Partager",
+                                tint = Color.White
+                            )
+                        }
+                    }
+
+                    // Main Content Scrollable
+                    androidx.compose.foundation.lazy.LazyColumn(
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxWidth(),
+                        contentPadding = PaddingValues(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        // 1. Cover & Quick Info
+                        item {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                AsyncImage(
+                                    model = sound.cover_url ?: "https://api.dicebear.com/7.x/shapes/png?seed=${sound.title}",
+                                    contentDescription = "Cover Image",
+                                    modifier = Modifier
+                                        .size(110.dp)
+                                        .clip(RoundedCornerShape(16.dp))
+                                        .border(2.dp, Color(0xFF00FFCC).copy(alpha = 0.4f), RoundedCornerShape(16.dp)),
+                                    contentScale = ContentScale.Crop
+                                )
+                                Spacer(modifier = Modifier.width(16.dp))
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = sound.title,
+                                        style = MaterialTheme.typography.titleLarge,
+                                        fontWeight = FontWeight.Black,
+                                        color = Color.White,
+                                        maxLines = 2
+                                    )
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Box(
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .background(Color(0xFF00FFCC).copy(alpha = 0.15f))
+                                            .padding(horizontal = 8.dp, vertical = 4.dp)
+                                    ) {
+                                        Text(
+                                            text = sound.category.uppercase(),
+                                            style = MaterialTheme.typography.labelSmall,
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color(0xFF00FFCC)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+                        // 2. Creator Profile Row
+                        item {
+                            Card(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        onDismiss()
+                                        val artistId = sound.user_id ?: sound.author_id
+                                        if (artistId != null) {
+                                            onArtistClick(artistId)
+                                        }
+                                    },
+                                colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B).copy(alpha = 0.4f)),
+                                border = BorderStroke(1.dp, Color.White.copy(alpha = 0.05f))
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(12.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    AsyncImage(
+                                        model = sound.avatar_url ?: "https://api.dicebear.com/7.x/adventurer/png?seed=${sound.username}",
+                                        contentDescription = "Artist Avatar",
+                                        modifier = Modifier
+                                            .size(44.dp)
+                                            .clip(CircleShape)
+                                            .border(1.dp, Color(0xFF00FFCC), CircleShape),
+                                        contentScale = ContentScale.Crop
+                                    )
+                                    Spacer(modifier = Modifier.width(12.dp))
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Text(
+                                                text = sound.username ?: sound.author_username ?: "Unknown Artist",
+                                                style = MaterialTheme.typography.bodyMedium,
+                                                fontWeight = FontWeight.Bold,
+                                                color = Color.White
+                                            )
+                                            if (sound.is_verified || sound.author_is_verified) {
+                                                Spacer(modifier = Modifier.width(4.dp))
+                                                Icon(
+                                                    imageVector = Icons.Default.Verified,
+                                                    contentDescription = "Verified",
+                                                    tint = Color(0xFF00FFCC),
+                                                    modifier = Modifier.size(14.dp)
+                                                )
+                                            }
+                                        }
+                                        Text(
+                                            text = "Voir le profil de l'artiste",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = Color.Gray
+                                        )
+                                    }
+                                    Icon(
+                                        imageVector = Icons.Default.Settings,
+                                        contentDescription = "Détails",
+                                        tint = Color.Gray,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                }
+                            }
+                        }
+
+                        // 3. Technical Specs / Metadata Spreadsheet Card
+                        item {
+                            Column(modifier = Modifier.fillMaxWidth()) {
+                                Text(
+                                    text = "MÉTADONNÉES TECHNIQUES & AUDIO",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color.Gray,
+                                    letterSpacing = 1.2.sp,
+                                    modifier = Modifier.padding(bottom = 8.dp)
+                                )
+                                Card(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B).copy(alpha = 0.2f)),
+                                    border = BorderStroke(1.dp, Color.White.copy(alpha = 0.05f))
+                                ) {
+                                    Column(modifier = Modifier.padding(16.dp)) {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween
+                                        ) {
+                                            SpecDetailItem("Durée", formatSoundDuration(sound.duration), Modifier.weight(1f))
+                                            SpecDetailItem("Auditions", "${sound.plays_count ?: sound.plays}", Modifier.weight(1f))
+                                        }
+                                        Spacer(modifier = Modifier.height(12.dp))
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween
+                                        ) {
+                                            SpecDetailItem("BPM / Tempo", technicalMetadata.bpmVal, Modifier.weight(1f))
+                                            SpecDetailItem("Tonalité (Key)", technicalMetadata.keyVal, Modifier.weight(1f))
+                                        }
+                                        Spacer(modifier = Modifier.height(12.dp))
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween
+                                        ) {
+                                            SpecDetailItem("Format Codec", technicalMetadata.codecVal, Modifier.weight(1f))
+                                            SpecDetailItem("Débit Numérique", technicalMetadata.bitrateVal, Modifier.weight(1f))
+                                        }
+                                        Spacer(modifier = Modifier.height(12.dp))
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween
+                                        ) {
+                                            SpecDetailItem("Échantillonnage", technicalMetadata.sampleRateVal, Modifier.weight(1f))
+                                            SpecDetailItem("Licence", "Copyright Libres de Droits", Modifier.weight(1f))
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // 4. Description Section
+                        item {
+                            Column(modifier = Modifier.fillMaxWidth()) {
+                                Text(
+                                    text = "DESCRIPTION",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color.Gray,
+                                    letterSpacing = 1.2.sp,
+                                    modifier = Modifier.padding(bottom = 8.dp)
+                                )
+                                Card(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B).copy(alpha = 0.2f)),
+                                    border = BorderStroke(1.dp, Color.White.copy(alpha = 0.05f))
+                                ) {
+                                    Text(
+                                        text = sound.description ?: "Aucune description fournie par l'artiste pour ce son original. Titre exclusif de la plateforme.",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = Color.LightGray,
+                                        modifier = Modifier.padding(16.dp),
+                                        lineHeight = 20.sp
+                                    )
+                                }
+                            }
+                        }
+
+                        // 5. Comments Section Title
+                        item {
+                            Text(
+                                text = "COMMENTAIRES DE LA COMMUNAUTÉ (${commentsList.size})",
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.Gray,
+                                letterSpacing = 1.2.sp,
+                                modifier = Modifier.padding(top = 8.dp)
+                            )
+                        }
+
+                        // Comments List Items
+                        if (isLoadingDetails) {
+                            item {
+                                Box(modifier = Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center) {
+                                    CircularProgressIndicator(color = Color(0xFF00FFCC), modifier = Modifier.size(24.dp))
+                                }
+                            }
+                        } else if (commentsList.isEmpty()) {
+                            item {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(16.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text("Aucun commentaire pour le moment. Soyez le premier !", color = Color.Gray, style = MaterialTheme.typography.bodyMedium)
+                                }
+                            }
+                        } else {
+                            items(commentsList) { comment ->
+                                CommentItemRow(comment = comment)
+                            }
+                        }
+                    }
+
+                    // Persistent bottom control bar with Post Comment text field AND Listen CTA
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(Color(0xFF0F172A))
+                            .border(1.dp, Color.White.copy(alpha = 0.05f))
+                            .padding(16.dp)
+                    ) {
+                        // Add comment textfield row
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            OutlinedTextField(
+                                value = newCommentText,
+                                onValueChange = { newCommentText = it },
+                                placeholder = { Text("Écrire un commentaire public...", color = Color.Gray, fontSize = 13.sp) },
+                                modifier = Modifier.weight(1f),
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedTextColor = Color.White,
+                                    unfocusedTextColor = Color.White,
+                                    focusedBorderColor = Color(0xFF00FFCC),
+                                    unfocusedBorderColor = Color.DarkGray
+                                ),
+                                shape = RoundedCornerShape(24.dp),
+                                maxLines = 2
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            IconButton(
+                                onClick = {
+                                    if (newCommentText.isNotBlank() && !isPostingComment) {
+                                        isPostingComment = true
+                                        coroutineScope.launch {
+                                            try {
+                                                val commentReq = com.example.domain.model.CommentRequest(text = newCommentText)
+                                                val added = NetworkModule.api.postComment(sound.id, commentReq)
+                                                commentsList = listOf(added) + commentsList
+                                                newCommentText = ""
+                                            } catch (e: Exception) {
+                                                e.printStackTrace()
+                                            } finally {
+                                                isPostingComment = false
+                                            }
+                                        }
+                                    }
+                                },
+                                enabled = newCommentText.isNotBlank() && !isPostingComment,
+                                modifier = Modifier
+                                    .clip(CircleShape)
+                                    .background(if (newCommentText.isNotBlank()) Color(0xFF00FFCC) else Color.DarkGray)
+                            ) {
+                                if (isPostingComment) {
+                                    CircularProgressIndicator(color = Color.Black, modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                                } else {
+                                    Icon(
+                                        imageVector = Icons.Default.Add,
+                                        contentDescription = "Poster",
+                                        tint = Color.Black,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        // Large Écouter CTA
+                        Button(
+                            onClick = {
+                                if (currentlyPlayingSound?.id == sound.id) {
+                                    audioPlayerManager.togglePlayPause()
+                                } else {
+                                    sound.audio_url?.let {
+                                        audioPlayerManager.playTrack(it, sound)
+                                    }
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = if (currentlyPlayingSound?.id == sound.id && isPlaying) Color(0xFFEF4444) else Color(0xFF00FFCC)
+                            ),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Icon(
+                                imageVector = if (currentlyPlayingSound?.id == sound.id && isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                                contentDescription = null,
+                                tint = Color.Black,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = if (currentlyPlayingSound?.id == sound.id && isPlaying) "METTRE EN PAUSE L'ÉCOUTE" else "LANCER L'ÉCOUTE DU SON",
+                                color = Color.Black,
+                                fontWeight = FontWeight.Bold,
+                                letterSpacing = 1.sp
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun SpecDetailItem(label: String, value: String, modifier: Modifier = Modifier) {
+    Column(modifier = modifier) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelSmall,
+            color = Color.Gray,
+            fontSize = 11.sp
+        )
+        Spacer(modifier = Modifier.height(2.dp))
+        Text(
+            text = value,
+            style = MaterialTheme.typography.bodyMedium,
+            color = Color.White,
+            fontWeight = FontWeight.Bold,
+            fontSize = 13.sp
+        )
+    }
+}
+
+@Composable
+fun CommentItemRow(comment: com.example.domain.model.Comment) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 8.dp),
+        verticalAlignment = Alignment.Top
+    ) {
+        AsyncImage(
+            model = comment.avatar_url ?: "https://api.dicebear.com/7.x/adventurer/png?seed=${comment.username ?: "Anonyme"}",
+            contentDescription = "Avatar de l'utilisateur",
+            modifier = Modifier
+                .size(36.dp)
+                .clip(CircleShape)
+                .border(1.dp, Color.White.copy(alpha = 0.1f), CircleShape),
+            contentScale = ContentScale.Crop
+        )
+        Spacer(modifier = Modifier.width(12.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = comment.username ?: "Anonyme",
+                    style = MaterialTheme.typography.bodySmall,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White
+                )
+                if (comment.is_verified || comment.username == "tecnocamon20") {
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Icon(
+                        imageVector = Icons.Default.Verified,
+                        contentDescription = "Verified",
+                        tint = Color(0xFF00FFCC),
+                        modifier = Modifier.size(11.dp)
+                    )
+                }
+            }
+            Spacer(modifier = Modifier.height(2.dp))
+            Text(
+                text = comment.content ?: "",
+                style = MaterialTheme.typography.bodyMedium,
+                color = Color.LightGray,
+                fontSize = 13.sp
+            )
+        }
+    }
+}
+
+private fun getFallbackSounds(): List<Sound> {
+    return listOf(
+        Sound(
+            id = "fallback_1",
+            title = "Midnight Coffee Lo-Fi",
+            category = "Lofi",
+            cover_url = "https://images.unsplash.com/photo-1511920170033-f8396924c348?w=400&auto=format&fit=crop&q=80",
+            username = "LofiVibes",
+            author_username = "LofiVibes",
+            audio_url = "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3",
+            plays_count = 142380,
+            plays = 142380,
+            likes_count = 1240,
+            comments_count = 89,
+            created_at = "2026-06-20T12:00:00Z",
+            is_verified = true,
+            author_is_verified = true,
+            duration = 372f,
+            description = "Un son lo-fi doux et nostalgique, parfait pour accompagner vos sessions de travail, d'études ou simplement pour se relaxer au coin du feu."
+        ),
+        Sound(
+            id = "fallback_2",
+            title = "Neon Drive Retro",
+            category = "Synthwave",
+            cover_url = "https://images.unsplash.com/photo-1515462277126-270d878326e5?w=400&auto=format&fit=crop&q=80",
+            username = "AlexSynth",
+            author_username = "AlexSynth",
+            audio_url = "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-2.mp3",
+            plays_count = 89450,
+            plays = 89450,
+            likes_count = 945,
+            comments_count = 54,
+            created_at = "2026-06-21T15:30:00Z",
+            is_verified = true,
+            author_is_verified = true,
+            duration = 423f,
+            description = "Plongez dans les années 80 avec cette piste de synthwave énergique inspirée des courses de voitures rétro-futuristes sous le soleil couchant de Miami."
+        ),
+        Sound(
+            id = "fallback_3",
+            title = "Acoustic Sunset Breeze",
+            category = "Acoustic",
+            cover_url = "https://images.unsplash.com/photo-1470225620780-dba8ba36b745?w=400&auto=format&fit=crop&q=80",
+            username = "ClaraMelody",
+            author_username = "ClaraMelody",
+            audio_url = "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-3.mp3",
+            plays_count = 45210,
+            plays = 45210,
+            likes_count = 632,
+            comments_count = 27,
+            created_at = "2026-06-22T18:45:00Z",
+            is_verified = false,
+            author_is_verified = false,
+            duration = 344f,
+            description = "Une guitare acoustique chaleureuse et apaisante capturant l'essence des douces fins d'après-midi en bord de mer. Composé et joué avec amour."
+        ),
+        Sound(
+            id = "fallback_4",
+            title = "Deep Space Ambience",
+            category = "Ambient",
+            cover_url = "https://images.unsplash.com/photo-1451187580459-43490279c0fa?w=400&auto=format&fit=crop&q=80",
+            username = "CosmicBeats",
+            author_username = "CosmicBeats",
+            audio_url = "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-4.mp3",
+            plays_count = 212500,
+            plays = 212500,
+            likes_count = 3540,
+            comments_count = 194,
+            created_at = "2026-06-19T08:15:00Z",
+            is_verified = true,
+            author_is_verified = true,
+            duration = 302f,
+            description = "Un voyage sonore méditatif à travers la galaxie. Nappes de synthétiseurs cosmiques idéales pour le sommeil profond ou la méditation transcendantale."
+        ),
+        Sound(
+            id = "fallback_5",
+            title = "Golden Hour Deep House",
+            category = "House",
+            cover_url = "https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=400&auto=format&fit=crop&q=80",
+            username = "DJ_Kev",
+            author_username = "DJ_Kev",
+            audio_url = "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-5.mp3",
+            plays_count = 167300,
+            plays = 167300,
+            likes_count = 1890,
+            comments_count = 112,
+            created_at = "2026-06-18T22:10:00Z",
+            is_verified = true,
+            author_is_verified = true,
+            duration = 362f,
+            description = "Un kick lourd, une basse groovy et des mélodies ensoleillées pour vous faire danser toute la nuit sous les rythmes entraînants de la deep house moderne."
+        ),
+        Sound(
+            id = "fallback_6",
+            title = "Cyber City Rainstorm",
+            category = "Soundscape",
+            cover_url = "https://images.unsplash.com/photo-1509198397868-475647b2a1e5?w=400&auto=format&fit=crop&q=80",
+            username = "AetherSound",
+            author_username = "AetherSound",
+            audio_url = "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-6.mp3",
+            plays_count = 12050,
+            plays = 12050,
+            likes_count = 210,
+            comments_count = 15,
+            created_at = "2026-06-23T01:30:00Z",
+            is_verified = false,
+            author_is_verified = false,
+            duration = 458f,
+            description = "Ambiance sonore urbaine mélangée à une tempête de pluie dense sous les néons étincelants d'une métropole futuriste. Un asile de paix cyberpunk."
+        ),
+        Sound(
+            id = "fallback_7",
+            title = "Sunday Jazz Piano Impro",
+            category = "Jazz",
+            cover_url = "https://images.unsplash.com/photo-1520523839897-bd0b52f945a0?w=400&auto=format&fit=crop&q=80",
+            username = "SébastienKeys",
+            author_username = "SébastienKeys",
+            audio_url = "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-7.mp3",
+            plays_count = 34500,
+            plays = 34500,
+            likes_count = 490,
+            comments_count = 33,
+            created_at = "2026-06-22T10:00:00Z",
+            is_verified = false,
+            author_is_verified = false,
+            duration = 312f,
+            description = "Improvisation magistrale au piano à queue, mêlant des accords jazz complexes et des mélodies mélancoliques pour un après-midi tout en douceur."
+        ),
+        Sound(
+            id = "fallback_8",
+            title = "Epic Cinematic Ascent",
+            category = "Cinematic",
+            cover_url = "https://images.unsplash.com/photo-1465847899084-d164df4dedc6?w=400&auto=format&fit=crop&q=80",
+            username = "OrchestraMind",
+            author_username = "OrchestraMind",
+            audio_url = "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-8.mp3",
+            plays_count = 278100,
+            plays = 278100,
+            likes_count = 5890,
+            comments_count = 432,
+            created_at = "2026-06-15T14:20:00Z",
+            is_verified = true,
+            author_is_verified = true,
+            duration = 401f,
+            description = "Une montée en puissance orchestrale dramatique associant cuivres puissants, cordes vibrantes et percussions tonitruantes pour vos moments les plus épiques."
+        )
+    )
 }

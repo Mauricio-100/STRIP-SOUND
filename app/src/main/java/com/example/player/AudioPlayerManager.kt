@@ -1,40 +1,29 @@
 package com.example.player
 
-import android.content.ComponentName
 import android.content.Context
-import androidx.core.content.ContextCompat
+import android.os.Handler
+import android.os.Looper
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
-import androidx.media3.session.MediaController
-import androidx.media3.session.SessionToken
-import com.google.common.util.concurrent.ListenableFuture
+import androidx.media3.exoplayer.ExoPlayer
+import com.example.domain.model.Sound
+import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.isActive
-import kotlinx.coroutines.delay
 
 class AudioPlayerManager(private val context: Context) {
 
-    val deviceDetector = AudioDeviceDetector(context)
-    val webBluetoothManager = WebBluetoothManager(context, deviceDetector)
+    val player: ExoPlayer = ExoPlayer.Builder(context.applicationContext).build()
 
-    private var controllerFuture: ListenableFuture<MediaController>? = null
-    var player: Player? = null
-        private set
+    private val _currentSound = MutableStateFlow<Sound?>(null)
+    val currentSound: StateFlow<Sound?> = _currentSound.asStateFlow()
+
+    private val _playlist = MutableStateFlow<List<Sound>>(emptyList())
+    val playlist: StateFlow<List<Sound>> = _playlist.asStateFlow()
 
     private val _isPlaying = MutableStateFlow(false)
     val isPlaying: StateFlow<Boolean> = _isPlaying.asStateFlow()
-
-    private val _playbackState = MutableStateFlow(Player.STATE_IDLE)
-    val playbackState: StateFlow<Int> = _playbackState.asStateFlow()
-
-    private val _currentTrack = MutableStateFlow<MediaItem?>(null)
-    val currentTrack: StateFlow<MediaItem?> = _currentTrack.asStateFlow()
-
-    private val _currentSound = MutableStateFlow<com.example.domain.model.Sound?>(null)
-    val currentSound: StateFlow<com.example.domain.model.Sound?> = _currentSound.asStateFlow()
 
     private val _currentPosition = MutableStateFlow(0L)
     val currentPosition: StateFlow<Long> = _currentPosition.asStateFlow()
@@ -42,92 +31,154 @@ class AudioPlayerManager(private val context: Context) {
     private val _duration = MutableStateFlow(0L)
     val duration: StateFlow<Long> = _duration.asStateFlow()
 
-    private val _volume = MutableStateFlow(1f)
+    private val _volume = MutableStateFlow(1.0f)
     val volume: StateFlow<Float> = _volume.asStateFlow()
 
-    private val playerScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Main + kotlinx.coroutines.SupervisorJob())
-    private var progressJob: kotlinx.coroutines.Job? = null
+    private val _currentTrack = MutableStateFlow<MediaItem?>(null)
+    val currentTrack: StateFlow<MediaItem?> = _currentTrack.asStateFlow()
 
-    private fun startProgressUpdate() {
-        progressJob?.cancel()
-        progressJob = playerScope.launch {
-            while (isActive) {
-                _currentPosition.value = player?.currentPosition ?: 0L
-                _duration.value = player?.duration?.coerceAtLeast(0L) ?: 0L
-                delay(250)
+    val deviceDetector = AudioDeviceDetector(context)
+    val webBluetoothManager = WebBluetoothManager(context)
+
+    private val mainHandler = Handler(Looper.getMainLooper())
+    private var progressRunnable: Runnable? = null
+    
+    init {
+        mainHandler.post {
+            player.addListener(object : Player.Listener {
+                override fun onIsPlayingChanged(playing: Boolean) {
+                    _isPlaying.value = playing
+                    if (playing) {
+                        startProgressUpdates()
+                    } else {
+                        stopProgressUpdates()
+                    }
+                }
+
+                override fun onPlaybackStateChanged(state: Int) {
+                    _duration.value = if (player.duration > 0) player.duration else 0L
+                    if (state == Player.STATE_ENDED) {
+                        _currentPosition.value = 0L
+                    }
+                }
+            })
+        }
+    }
+
+    fun playTrack(url: String, sound: Sound? = null, itemMetadata: Any? = null) {
+        mainHandler.post {
+            val builder = MediaItem.Builder()
+                .setUri(url)
+                .setRequestMetadata(
+                    MediaItem.RequestMetadata.Builder()
+                        .setMediaUri(android.net.Uri.parse(url))
+                        .build()
+                )
+            val mediaItem = builder.build()
+            _currentTrack.value = mediaItem
+            _currentSound.value = sound ?: Sound(
+                id = url.hashCode().toString(),
+                title = "Online Audio Track",
+                category = "Streaming",
+                audio_url = url
+            )
+            player.setMediaItem(mediaItem)
+            player.prepare()
+            player.play()
+        }
+    }
+
+    fun playTrack(url: String, sound: Sound) {
+        playTrack(url, sound, null)
+    }
+
+    fun playTrack(url: String) {
+        playTrack(url, null, null)
+    }
+
+    fun seekTo(positionMs: Long) {
+        mainHandler.post {
+            player.seekTo(positionMs)
+            _currentPosition.value = positionMs
+        }
+    }
+
+    fun setPlaybackSpeed(speed: Float) {
+        mainHandler.post {
+            player.setPlaybackSpeed(speed)
+        }
+    }
+
+    fun togglePlayPause() {
+        mainHandler.post {
+            if (player.isPlaying) {
+                player.pause()
+            } else {
+                player.play()
             }
         }
     }
 
-    private fun stopProgressUpdate() {
-        progressJob?.cancel()
-    }
-
-    init {
-        val sessionToken = SessionToken(context, ComponentName(context, AudioService::class.java))
-        controllerFuture = MediaController.Builder(context, sessionToken).buildAsync()
-        controllerFuture?.addListener(
-            {
-                player = controllerFuture?.get()
-                _volume.value = player?.volume ?: 1f
-                player?.addListener(object : Player.Listener {
-                    override fun onPlaybackStateChanged(playbackState: Int) {
-                        _playbackState.value = playbackState
-                        if (playbackState == Player.STATE_READY) {
-                            _duration.value = player?.duration?.coerceAtLeast(0L) ?: 0L
-                        }
-                    }
-
-                    override fun onIsPlayingChanged(isPlaying: Boolean) {
-                        _isPlaying.value = isPlaying
-                        if (isPlaying) {
-                            startProgressUpdate()
-                        } else {
-                            stopProgressUpdate()
-                        }
-                    }
-                })
-            },
-            ContextCompat.getMainExecutor(context)
-        )
-    }
-
-    fun playTrack(url: String, sound: com.example.domain.model.Sound? = null, metadata: MediaItem.RequestMetadata? = null, itemMetadata: androidx.media3.common.MediaMetadata? = null) {
-        sound?.let { _currentSound.value = it }
-        val mediaItem = MediaItem.Builder()
-            .setUri(url)
-            .setRequestMetadata(metadata ?: MediaItem.RequestMetadata.EMPTY)
-            .setMediaMetadata(itemMetadata ?: androidx.media3.common.MediaMetadata.EMPTY)
-            .build()
-        _currentTrack.value = mediaItem
-        
-        player?.setMediaItem(mediaItem)
-        player?.prepare()
-        player?.play()
-    }
-    
-    fun togglePlayPause() {
-        if (player?.isPlaying == true) {
-            player?.pause()
-        } else {
-            player?.play()
+    fun setVolume(vol: Float) {
+        mainHandler.post {
+            player.volume = vol
+            _volume.value = vol
         }
     }
-    
-    fun seekTo(positionMs: Long) {
-        player?.seekTo(positionMs)
-        _currentPosition.value = positionMs
+
+    private fun startProgressUpdates() {
+        stopProgressUpdates()
+        progressRunnable = object : Runnable {
+            override fun run() {
+                _currentPosition.value = player.currentPosition
+                _duration.value = if (player.duration > 0) player.duration else 0L
+                mainHandler.postDelayed(this, 250)
+            }
+        }
+        mainHandler.post(progressRunnable!!)
     }
 
-    fun setVolume(vol: Float) {
-        val clamped = vol.coerceIn(0f, 1f)
-        player?.volume = clamped
-        _volume.value = clamped
+    private fun stopProgressUpdates() {
+        progressRunnable?.let { mainHandler.removeCallbacks(it) }
+        progressRunnable = null
+    }
+
+    fun setPlaylist(list: List<Sound>) {
+        _playlist.value = list
+    }
+
+    fun playNext() {
+        val current = _currentSound.value ?: return
+        val list = _playlist.value
+        if (list.isEmpty()) return
+        val currentIndex = list.indexOfFirst { it.id == current.id }
+        if (currentIndex != -1 && currentIndex < list.size - 1) {
+            val nextSound = list[currentIndex + 1]
+            nextSound.audio_url?.let { playTrack(it, nextSound) }
+        } else if (list.isNotEmpty()) {
+            val nextSound = list.first()
+            nextSound.audio_url?.let { playTrack(it, nextSound) }
+        }
+    }
+
+    fun playPrevious() {
+        val current = _currentSound.value ?: return
+        val list = _playlist.value
+        if (list.isEmpty()) return
+        val currentIndex = list.indexOfFirst { it.id == current.id }
+        if (currentIndex > 0) {
+            val prevSound = list[currentIndex - 1]
+            prevSound.audio_url?.let { playTrack(it, prevSound) }
+        } else if (list.isNotEmpty()) {
+            val prevSound = list.last()
+            prevSound.audio_url?.let { playTrack(it, prevSound) }
+        }
     }
 
     fun release() {
-        progressJob?.cancel()
-        deviceDetector.release()
-        controllerFuture?.let { MediaController.releaseFuture(it) }
+        mainHandler.post {
+            stopProgressUpdates()
+            player.release()
+        }
     }
 }

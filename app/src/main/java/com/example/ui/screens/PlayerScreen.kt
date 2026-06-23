@@ -33,8 +33,22 @@ import coil.compose.AsyncImage
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.Spring
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
+import androidx.compose.animation.SizeTransform
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
 import androidx.compose.ui.graphics.graphicsLayer
 import com.example.domain.model.Sound
+import com.example.domain.model.SoundShortResponse
 import com.example.player.AudioPlayerManager
 import androidx.media3.common.Player
 
@@ -82,13 +96,103 @@ fun PlayerScreen(
     val duration by audioPlayerManager.duration.collectAsState()
     var isLiked by remember { mutableStateOf(authManager.isSoundLiked(sound.id)) }
     var likesCount by remember { mutableIntStateOf(sound.likes_count) }
+    var commentsCount by remember { mutableIntStateOf(sound.comments_count) }
     var sharesCount by remember { mutableIntStateOf(35 + (sound.plays_count / 150)) }
     var showComments by remember { mutableStateOf(false) }
+    var soundShortInfo by remember { mutableStateOf<SoundShortResponse?>(null) }
+    
+    // Fetch Short Info
+    LaunchedEffect(sound.id) {
+        try {
+            soundShortInfo = com.example.data.remote.NetworkModule.api.getSoundShort(sound.id)
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
     var showAddToPlaylistDialog by remember { mutableStateOf(false) }
     var commentsList by remember { mutableStateOf<List<com.example.domain.model.Comment>>(emptyList()) }
     var isCommentsLoading by remember { mutableStateOf(false) }
     var newCommentText by remember { mutableStateOf("") }
     var soundDetails by remember { mutableStateOf<com.example.domain.model.SoundDetailsResponse?>(null) }
+    
+    // Technical visualizer and simulation states
+    var playerTabMode by remember { mutableStateOf("cover") } // "cover", "visualizer", "specs"
+    val volume by audioPlayerManager.volume.collectAsState()
+    
+    val technicalMetadata = remember(sound.id) { getSoundTechnicalMetadata(sound.id) }
+    
+    // Live Frequency states (16 bands)
+    val frequencyBands = remember { mutableStateListOf<Float>().apply { addAll(List(16) { 0f }) } }
+    val peakHolds = remember { mutableStateListOf<Float>().apply { addAll(List(16) { 0f }) } }
+    
+    // Spectrogram scrolling history line buffer
+    val spectrogramHistory = remember { mutableStateListOf<FloatArray>() }
+    
+    // Main speaker pulsing beat scalar
+    var visualizerPulseScale by remember { mutableFloatStateOf(1f) }
+    
+    // Real-time audio analyzer simulation loop (60fps reactive)
+    LaunchedEffect(isPlaying, volume) {
+        if (isPlaying) {
+            var time = 0f
+            while (isActive) {
+                time += 0.2f
+                for (i in 0 until 16) {
+                    val baseFactor = when (i) {
+                        in 0..2 -> 0.75f  // Sub / Bass
+                        in 3..6 -> 0.6f   // Mids
+                        in 7..11 -> 0.45f // Mid-highs
+                        else -> 0.3f      // Highs
+                    }
+                    
+                    val wave1 = kotlin.math.sin(time * 0.8f + i * 0.5f) * 0.4f
+                    val wave2 = kotlin.math.cos(time * 1.5f - i * 0.3f) * 0.3f
+                    val r = (0.5f + (kotlin.math.sin(time * 3f + i) * 0.5f)) * 0.3f
+                    
+                    var targetValue = (baseFactor + wave1 + wave2 + r).coerceIn(0.05f, 1f)
+                    targetValue *= (volume * 1.2f).coerceAtLeast(0.1f)
+                    
+                    val currentVal = frequencyBands[i]
+                    val smoothedVal = currentVal + (targetValue - currentVal) * 0.25f
+                    frequencyBands[i] = smoothedVal
+                    
+                    val peak = peakHolds[i]
+                    if (smoothedVal > peak) {
+                        peakHolds[i] = smoothedVal
+                    } else {
+                        peakHolds[i] = (peak - 0.02f).coerceAtLeast(0f)
+                    }
+                }
+                
+                val newFrame = FloatArray(16) { frequencyBands[it] }
+                if (spectrogramHistory.size >= 20) {
+                    spectrogramHistory.removeAt(0)
+                }
+                spectrogramHistory.add(newFrame)
+                
+                val bassAverage = (frequencyBands[0] + frequencyBands[1] + frequencyBands[2]) / 3f
+                visualizerPulseScale = 1f + (bassAverage * 0.18f)
+                
+                delay(33) // ~30 fps update
+            }
+        } else {
+            // Smooth decay back to zero
+            while (frequencyBands.any { it > 0.01f }) {
+                for (i in 0 until 16) {
+                    frequencyBands[i] = (frequencyBands[i] * 0.82f).coerceAtLeast(0f)
+                    peakHolds[i] = (peakHolds[i] * 0.88f).coerceAtLeast(0f)
+                }
+                visualizerPulseScale = 1f + (visualizerPulseScale - 1f) * 0.82f
+                
+                if (spectrogramHistory.isNotEmpty()) {
+                    val frameDecay = FloatArray(16) { frequencyBands[it] }
+                    spectrogramHistory.removeAt(0)
+                    spectrogramHistory.add(frameDecay)
+                }
+                delay(33)
+            }
+        }
+    }
     
     // Real-time counter stream activity update - directly connected to the server
     LaunchedEffect(sound) {
@@ -96,7 +200,15 @@ fun PlayerScreen(
             try {
                 val details = com.example.data.remote.NetworkModule.api.getSoundDetails(sound.id)
                 soundDetails = details
-                likesCount = details.sound.likes_count
+                
+                // Fetch likes count and comments count from the new specific endpoints
+                val likesResp = com.example.data.remote.NetworkModule.api.getSoundLikesCount(sound.id)
+                likesCount = likesResp.likes_count
+                isLiked = likesResp.has_liked
+                authManager.setSoundLiked(sound.id, likesResp.has_liked)
+
+                val commentsResp = com.example.data.remote.NetworkModule.api.getSoundCommentsCount(sound.id)
+                commentsCount = commentsResp.total_comments
             } catch (e: Exception) {
                 e.printStackTrace()
             }
@@ -253,102 +365,414 @@ fun PlayerScreen(
 
                     Spacer(modifier = Modifier.height(16.dp))
 
-                    // Premium Art Frame with shadow & backdrop glow
-                    Box(
+                    // Segmented Tab bar Selector for Multi-Mode Audio Lab player
+                    Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .aspectRatio(1f)
-                            .padding(8.dp),
-                        contentAlignment = Alignment.Center
+                            .height(38.dp)
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(Color(0x14FFFFFF))
+                            .border(1.dp, Color(0x1CFFFFFF), RoundedCornerShape(10.dp))
+                            .padding(2.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        // Blurred shadow under artwork
-                        Box(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .padding(14.dp)
-                                .clip(RoundedCornerShape(32.dp))
-                                .background(
-                                    androidx.compose.ui.graphics.Brush.linearGradient(
-                                        colors = listOf(Color(0x4006B6D4), Color(0x1A7C3AED))
-                                    )
+                        listOf(
+                            "cover" to "Pochette",
+                            "visualizer" to "Analyseur Live",
+                            "specs" to "Spécifications"
+                        ).forEach { (mode, label) ->
+                            val isSelected = playerTabMode == mode
+                            val bg = if (isSelected) Color(0xFF06B6D4) else Color.Transparent
+                            val textColor = if (isSelected) Color.Black else Color.White.copy(alpha = 0.7f)
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .fillMaxHeight()
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(bg)
+                                    .clickable { playerTabMode = mode }
+                                    .padding(vertical = 4.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = label,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = textColor
                                 )
-                        )
+                            }
+                        }
+                    }
 
-                        Box(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .clip(RoundedCornerShape(24.dp))
-                                .border(1.5.dp, Color(0x33FFFFFF), RoundedCornerShape(24.dp))
-                                .background(Color(0xFF101418))
-                        ) {
-                            if (sound.cover_url != null) {
-                                AsyncImage(
-                                    model = sound.cover_url,
-                                    contentDescription = "Cover",
-                                    modifier = Modifier.fillMaxSize(),
-                                    contentScale = ContentScale.Crop
-                                )
-                            } else {
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    when (playerTabMode) {
+                        "cover" -> {
+                            // Premium Art Frame with shadow & backdrop glow
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .aspectRatio(1f)
+                                    .padding(8.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                // Blurred shadow under artwork
                                 Box(
                                     modifier = Modifier
                                         .fillMaxSize()
+                                        .padding(14.dp)
+                                        .clip(RoundedCornerShape(32.dp))
                                         .background(
-                                            androidx.compose.ui.graphics.Brush.verticalGradient(
-                                                listOf(Color(0xFF141D24), Color(0xFF0F151B))
+                                            androidx.compose.ui.graphics.Brush.linearGradient(
+                                                colors = listOf(Color(0x4006B6D4), Color(0x1A7C3AED))
                                             )
+                                        )
+                                )
+
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .clip(RoundedCornerShape(24.dp))
+                                        .border(1.5.dp, Color(0x33FFFFFF), RoundedCornerShape(24.dp))
+                                        .background(Color(0xFF101418))
+                                ) {
+                                    if (sound.cover_url != null) {
+                                        AsyncImage(
+                                            model = sound.cover_url,
+                                            contentDescription = "Cover",
+                                            modifier = Modifier.fillMaxSize(),
+                                            contentScale = ContentScale.Crop
+                                        )
+                                    } else {
+                                        Box(
+                                            modifier = Modifier
+                                                .fillMaxSize()
+                                                .background(
+                                                    androidx.compose.ui.graphics.Brush.verticalGradient(
+                                                        listOf(Color(0xFF141D24), Color(0xFF0F151B))
+                                                    )
+                                                ),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Icon(
+                                                Icons.Default.PlayArrow,
+                                                contentDescription = null,
+                                                modifier = Modifier.size(90.dp),
+                                                tint = Color(0xFF06B6D4).copy(alpha = 0.25f)
+                                            )
+                                        }
+                                    }
+                                    
+                                    // Glossy Satin overlay on artwork
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .background(
+                                                androidx.compose.ui.graphics.Brush.verticalGradient(
+                                                    listOf(Color(0x11FFFFFF), Color.Transparent, Color(0x11000000))
+                                                )
+                                            )
+                                    )
+
+                                    // Hi-Res Audio tag bottom left
+                                    Box(
+                                        modifier = Modifier
+                                            .align(Alignment.BottomStart)
+                                            .padding(16.dp)
+                                            .background(Color(0xCC000000), RoundedCornerShape(12.dp))
+                                            .border(1.dp, Color(0x1AFFFFFF), RoundedCornerShape(12.dp))
+                                            .padding(horizontal = 10.dp, vertical = 6.dp)
+                                    ) {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(6.dp)
+                                                    .clip(CircleShape)
+                                                    .background(Color(0xFF00FFCC))
+                                            )
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            Text(
+                                                "HI-RES STUDIO 24-BIT",
+                                                color = Color(0xFF00FFCC),
+                                                fontSize = 9.sp,
+                                                fontWeight = FontWeight.ExtraBold,
+                                                letterSpacing = 1.sp
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        "visualizer" -> {
+                            // High-fidelity Multi-visualizer Suite (Canvas overlays)
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .aspectRatio(1f)
+                                    .padding(8.dp)
+                                    .clip(RoundedCornerShape(24.dp))
+                                    .border(1.5.dp, Color(0x33FFFFFF), RoundedCornerShape(24.dp))
+                                    .background(Color(0xFF040608)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                // 1. Background scrolling Spectrogram heat-map
+                                androidx.compose.foundation.Canvas(modifier = Modifier.fillMaxSize()) {
+                                    val canvasWidth = size.width
+                                    val canvasHeight = size.height
+                                    
+                                    val historySize = spectrogramHistory.size
+                                    if (historySize > 0) {
+                                        val rowHeight = canvasHeight / 20f
+                                        for (rowIdx in 0 until historySize) {
+                                            val frame = spectrogramHistory[rowIdx]
+                                            val top = rowIdx * rowHeight
+                                            val colWidth = canvasWidth / 16f
+                                            
+                                            for (colIdx in 0 until 16) {
+                                                val amp = frame[colIdx]
+                                                val left = colIdx * colWidth
+                                                
+                                                val color = when {
+                                                    amp > 0.7f -> Color(0xFFFFFF00).copy(alpha = amp * 0.15f) // Glowing Yellows
+                                                    amp > 0.4f -> Color(0xFFFF007F).copy(alpha = amp * 0.12f) // Violet-pinks
+                                                    amp > 0.15f -> Color(0xFF7C3AED).copy(alpha = amp * 0.08f) // Deep purples
+                                                    else -> Color(0xFF06B6D4).copy(alpha = amp * 0.04f) // Chill cyans
+                                                }
+                                                
+                                                drawRect(
+                                                    color = color,
+                                                    topLeft = androidx.compose.ui.geometry.Offset(left, top),
+                                                    size = androidx.compose.ui.geometry.Size(colWidth, rowHeight)
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                                
+                                // 2. Central rotating pulsating Neon Circular Speaker bar
+                                Box(
+                                    modifier = Modifier
+                                        .size(170.dp)
+                                        .graphicsLayer(
+                                            scaleX = visualizerPulseScale,
+                                            scaleY = visualizerPulseScale
                                         ),
                                     contentAlignment = Alignment.Center
                                 ) {
-                                    Icon(
-                                        Icons.Default.PlayArrow,
-                                        contentDescription = null,
-                                        modifier = Modifier.size(90.dp),
-                                        tint = Color(0xFF06B6D4).copy(alpha = 0.25f)
-                                    )
-                                }
-                            }
-                            
-                            // Glossy Satin overlay on artwork
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .background(
-                                        androidx.compose.ui.graphics.Brush.verticalGradient(
-                                            listOf(Color(0x11FFFFFF), Color.Transparent, Color(0x11000000))
+                                    androidx.compose.foundation.Canvas(modifier = Modifier.fillMaxSize()) {
+                                        val radius = size.minDimension / 2f
+                                        val center = androidx.compose.ui.geometry.Offset(size.width / 2f, size.height / 2f)
+                                        
+                                        // Pulse backing layers
+                                        drawCircle(
+                                            color = Color(0xFF00FFCC).copy(alpha = 0.12f * (visualizerPulseScale - 0.95f).coerceAtLeast(0f)),
+                                            radius = radius * 1.15f,
+                                            center = center
                                         )
-                                    )
-                            )
-
-                            // Hi-Res Audio tag bottom left
-                            Box(
-                                modifier = Modifier
-                                    .align(Alignment.BottomStart)
-                                    .padding(16.dp)
-                                    .background(Color(0xCC000000), RoundedCornerShape(12.dp))
-                                    .border(1.dp, Color(0x1AFFFFFF), RoundedCornerShape(12.dp))
-                                    .padding(horizontal = 10.dp, vertical = 6.dp)
-                            ) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                        drawCircle(
+                                            color = Color(0xFF7C3AED).copy(alpha = 0.16f * (visualizerPulseScale - 0.95f).coerceAtLeast(0f)),
+                                            radius = radius * 1.25f,
+                                            center = center
+                                        )
+                                        
+                                        // 48 radial speaker rays
+                                        val numRadialBars = 48
+                                        val innerRadius = radius * 0.72f
+                                        val outerRadiusMax = radius * 1.05f
+                                        val angleStep = 360f / numRadialBars
+                                        
+                                        for (j in 0 until numRadialBars) {
+                                            val angleDeg = j * angleStep
+                                            val angleRad = Math.toRadians(angleDeg.toDouble())
+                                            
+                                            val freqIdx = (j % 8) * 2
+                                            val amp = frequencyBands[freqIdx]
+                                            
+                                            val startX = center.x + innerRadius * Math.cos(angleRad).toFloat()
+                                            val startY = center.y + innerRadius * Math.sin(angleRad).toFloat()
+                                            
+                                            val currentLength = innerRadius + (outerRadiusMax - innerRadius) * amp
+                                            val endX = center.x + currentLength * Math.cos(angleRad).toFloat()
+                                            val endY = center.y + currentLength * Math.sin(angleRad).toFloat()
+                                            
+                                            val barColor = androidx.compose.ui.graphics.Color(
+                                                red = androidx.compose.ui.util.lerp(0.0f, 1.0f, amp),
+                                                green = androidx.compose.ui.util.lerp(1.0f, 0.0f, amp),
+                                                blue = androidx.compose.ui.util.lerp(0.8f, 1.0f, amp)
+                                            ).copy(alpha = 0.85f)
+                                            
+                                            drawLine(
+                                                color = barColor,
+                                                start = androidx.compose.ui.geometry.Offset(startX, startY),
+                                                end = androidx.compose.ui.geometry.Offset(endX, endY),
+                                                strokeWidth = 3.5f,
+                                                cap = androidx.compose.ui.graphics.StrokeCap.Round
+                                            )
+                                        }
+                                    }
+                                    
+                                    // Clipped Cover Thumbnail
                                     Box(
                                         modifier = Modifier
-                                            .size(6.dp)
+                                            .size(94.dp)
                                             .clip(CircleShape)
-                                            .background(Color(0xFF00FFCC))
-                                    )
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Text(
-                                        "HI-RES STUDIO 24-BIT",
-                                        color = Color(0xFF00FFCC),
-                                        fontSize = 9.sp,
-                                        fontWeight = FontWeight.ExtraBold,
-                                        letterSpacing = 1.sp
-                                    )
+                                            .border(1.5.dp, Color(0xFF00FFCC), CircleShape)
+                                            .background(Color(0xFF101418)),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        if (sound.cover_url != null) {
+                                            AsyncImage(
+                                                model = sound.cover_url,
+                                                contentDescription = "Cover thumb",
+                                                modifier = Modifier.fillMaxSize(),
+                                                contentScale = ContentScale.Crop
+                                            )
+                                        } else {
+                                            Icon(
+                                                Icons.Default.Verified,
+                                                contentDescription = null,
+                                                tint = Color(0xFF00FFCC).copy(alpha = 0.5f),
+                                                modifier = Modifier.size(36.dp)
+                                            )
+                                        }
+                                    }
+                                }
+                                
+                                // 3. 16-band classical audio Frequency Equalizer with gravity decaying peak-hold dots
+                                androidx.compose.foundation.Canvas(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(64.dp)
+                                        .align(Alignment.BottomCenter)
+                                        .padding(horizontal = 16.dp, vertical = 8.dp)
+                                ) {
+                                    val canvasWidth = size.width
+                                    val canvasHeight = size.height
+                                    
+                                    val spacing = 6f
+                                    val numBars = 16
+                                    val totalSpacing = spacing * (numBars - 1)
+                                    val barWidth = (canvasWidth - totalSpacing) / numBars
+                                    
+                                    for (b in 0 until numBars) {
+                                        val amp = frequencyBands[b]
+                                        val peak = peakHolds[b]
+                                        val barHeight = amp * canvasHeight
+                                        val left = b * (barWidth + spacing)
+                                        
+                                        val brush = androidx.compose.ui.graphics.Brush.verticalGradient(
+                                            colors = listOf(Color(0xFFFF007F), Color(0xFF00FFCC))
+                                        )
+                                        
+                                        drawRoundRect(
+                                            brush = brush,
+                                            topLeft = androidx.compose.ui.geometry.Offset(left, canvasHeight - barHeight),
+                                            size = androidx.compose.ui.geometry.Size(barWidth, barHeight),
+                                            cornerRadius = androidx.compose.ui.geometry.CornerRadius(4f, 4f)
+                                        )
+                                        
+                                        val peakY = (canvasHeight - (peak * canvasHeight)).coerceAtMost(canvasHeight - 4f)
+                                        drawRect(
+                                            color = Color.White.copy(alpha = 0.85f),
+                                            topLeft = androidx.compose.ui.geometry.Offset(left, peakY),
+                                            size = androidx.compose.ui.geometry.Size(barWidth, 3f)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                        "specs" -> {
+                            // Premium specification & audio telemetry specs spreadsheet
+                            Card(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .aspectRatio(1f)
+                                    .padding(8.dp),
+                                colors = CardDefaults.cardColors(containerColor = Color(0xFF0F172A).copy(alpha = 0.8f)),
+                                border = BorderStroke(1.dp, Color(0xFF00FFCC).copy(alpha = 0.1f)),
+                                shape = RoundedCornerShape(28.dp)
+                            ) {
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .padding(20.dp),
+                                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            "LAB STUDIO ANALYTICS",
+                                            color = Color(0xFF00FFCC),
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.Black,
+                                            letterSpacing = 2.sp
+                                        )
+                                        Icon(Icons.Default.Sync, contentDescription = null, tint = Color(0xFF00FFCC), modifier = Modifier.size(16.dp))
+                                    }
+                                    
+                                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                        ) {
+                                            SpecPill(label = "Codec", value = technicalMetadata.format, modifier = Modifier.weight(1f))
+                                            SpecPill(label = "Tonalité", value = technicalMetadata.key, modifier = Modifier.weight(1f))
+                                        }
+                                        
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                        ) {
+                                            SpecPill(label = "Tempo", value = "${technicalMetadata.bpm} BPM", modifier = Modifier.weight(1f))
+                                            SpecPill(label = "Canaux", value = technicalMetadata.channels, modifier = Modifier.weight(1f))
+                                        }
+                                    }
+                                    
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .weight(1f)
+                                            .clip(RoundedCornerShape(16.dp))
+                                            .background(Color.Black.copy(alpha = 0.3f))
+                                            .padding(14.dp)
+                                    ) {
+                                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                            Text("CARACTÉRISTIQUES SONORES", color = Color.Gray, fontSize = 10.sp, fontWeight = FontWeight.Black)
+                                            
+                                            SoundMetricBar(label = "Chaleur", value = 0.85f, color = Color(0xFFFF5500))
+                                            SoundMetricBar(label = "Clarté", value = 0.92f, color = Color(0xFF00FFCC))
+                                            SoundMetricBar(label = "Présence", value = 0.78f, color = Color(0xFF8B5CF6))
+                                        }
+                                    }
+                                    
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(8.dp)
+                                                .clip(CircleShape)
+                                                .background(Color(0xFF00FFCC))
+                                        )
+                                        Text(
+                                            "QUALITÉ MASTERING: ${technicalMetadata.rating}",
+                                            color = Color.White,
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Black
+                                        )
+                                    }
                                 }
                             }
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(20.dp))
+                    Spacer(modifier = Modifier.height(12.dp))
 
                     // Title with modern Display style and Verified Indicator
                     Text(
@@ -400,10 +824,10 @@ fun PlayerScreen(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        StatBox(label = "BPM", value = "128", modifier = Modifier.weight(1f))
-                        StatBox(label = "KEY", value = "G#m", modifier = Modifier.weight(1f))
-                        StatBox(label = "BASS", value = "High", modifier = Modifier.weight(1f))
-                        StatBox(label = "FORMAT", value = "FLAC", modifier = Modifier.weight(1f))
+                        StatBox(label = "BPM", value = technicalMetadata.bpm, modifier = Modifier.weight(1f))
+                        StatBox(label = "KEY", value = technicalMetadata.key, modifier = Modifier.weight(1f))
+                        StatBox(label = "BASS", value = technicalMetadata.info, modifier = Modifier.weight(1f))
+                        StatBox(label = "FORMAT", value = technicalMetadata.format, modifier = Modifier.weight(1f))
                     }
 
                     // Satin Glassy Social Action Sheet
@@ -418,7 +842,7 @@ fun PlayerScreen(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         val likeScale by animateFloatAsState(
-                            targetValue = if (isLiked) 1.3f else 1.0f,
+                            targetValue = if (isLiked) 1.35f else 1.0f,
                             animationSpec = spring(dampingRatio = Spring.DampingRatioHighBouncy, stiffness = Spring.StiffnessMedium),
                             label = "likeScale"
                         )
@@ -426,10 +850,20 @@ fun PlayerScreen(
                             verticalAlignment = Alignment.CenterVertically,
                             modifier = Modifier
                                 .clickable {
+                                    val wasLiked = isLiked
+                                    val originalLikesCount = likesCount
+                                    
+                                    // Optimistic local state update
+                                    isLiked = !isLiked
+                                    if (isLiked) {
+                                        likesCount++
+                                    } else {
+                                        likesCount = maxOf(0, likesCount - 1)
+                                    }
+                                    
                                     coroutineScope.launch {
                                         try {
                                             val response = com.example.data.remote.NetworkModule.api.likeSound(sound.id)
-                                            isLiked = response.liked
                                             authManager.setSoundLiked(sound.id, response.liked)
                                             
                                             // Trigger real native notification for Like activity
@@ -438,12 +872,16 @@ fun PlayerScreen(
                                                 notifMgr.notifyNewLike("Vous", sound.title)
                                             }
                                             
-                                            // Sync likesCount immediately of the server info
+                                            // Sync likesCount with server details response
                                             val details = com.example.data.remote.NetworkModule.api.getSoundDetails(sound.id)
                                             soundDetails = details
                                             likesCount = details.sound.likes_count
+                                            isLiked = response.liked
                                         } catch (e: Exception) {
                                             e.printStackTrace()
+                                            // Revert on error
+                                            isLiked = wasLiked
+                                            likesCount = originalLikesCount
                                         }
                                     }
                                 }
@@ -458,7 +896,28 @@ fun PlayerScreen(
                                     .graphicsLayer(scaleX = likeScale, scaleY = likeScale)
                             )
                             Spacer(modifier = Modifier.width(6.dp))
-                            Text("$likesCount", color = Color.White.copy(alpha = 0.85f), fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            AnimatedContent(
+                                targetState = likesCount,
+                                transitionSpec = {
+                                    if (targetState > initialState) {
+                                        (slideInVertically { height -> height } + fadeIn()) togetherWith
+                                        (slideOutVertically { height -> -height } + fadeOut())
+                                    } else {
+                                        (slideInVertically { height -> -height } + fadeIn()) togetherWith
+                                        (slideOutVertically { height -> height } + fadeOut())
+                                    }.using(
+                                        SizeTransform(clip = false)
+                                    )
+                                },
+                                label = "likesCountAnimation"
+                            ) { targetCount ->
+                                Text(
+                                    text = "$targetCount",
+                                    color = if (isLiked) Color(0xFFEF4444) else Color.White.copy(alpha = 0.85f),
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
                         }
 
                         Row(
@@ -481,7 +940,7 @@ fun PlayerScreen(
                         ) {
                             Icon(Icons.Default.Comment, contentDescription = "Comment", tint = Color.White.copy(alpha = 0.6f), modifier = Modifier.size(20.dp))
                             Spacer(modifier = Modifier.width(6.dp))
-                            Text("${sound.plays_count / 100}", color = Color.White.copy(alpha = 0.85f), fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            Text("$commentsCount", color = Color.White.copy(alpha = 0.85f), fontSize = 12.sp, fontWeight = FontWeight.Bold)
                         }
 
                         Row(
@@ -525,6 +984,7 @@ fun PlayerScreen(
                     // High-fidelity active waveform seek bar
                     WaveformVisualizer(
                         soundId = sound.id,
+                        isPlaying = isPlaying,
                         currentPosition = currentPosition,
                         duration = duration,
                         onSeek = { audioPlayerManager.seekTo(it) },
@@ -551,14 +1011,56 @@ fun PlayerScreen(
                     
                     Spacer(modifier = Modifier.weight(1f))
 
+                    // Seekbar (Interactive progress bar)
+                    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp)) {
+                        Slider(
+                            value = if (duration > 0) currentPosition.toFloat() / duration.toFloat() else 0f,
+                            onValueChange = { percent ->
+                                audioPlayerManager.seekTo((percent * duration).toLong())
+                            },
+                            colors = SliderDefaults.colors(
+                                thumbColor = Color.White,
+                                activeTrackColor = Color(0xFF06B6D4),
+                                inactiveTrackColor = Color.White.copy(alpha = 0.2f)
+                            ),
+                            modifier = Modifier.height(24.dp)
+                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(
+                                text = String.format("%d:%02d", (currentPosition / 1000) / 60, (currentPosition / 1000) % 60),
+                                color = Color.Gray,
+                                fontSize = 12.sp
+                            )
+                            Text(
+                                text = String.format("%d:%02d", (duration / 1000) / 60, (duration / 1000) % 60),
+                                color = Color.Gray,
+                                fontSize = 12.sp
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
                     // Player circular interactive control deck
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceEvenly,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        IconButton(onClick = { /* Shuffle logic placeholder */ }) {
-                            Icon(Icons.Default.Sync, contentDescription = "Shuffle", tint = Color.White.copy(alpha = 0.4f), modifier = Modifier.size(22.dp))
+                        var playbackSpeed by remember { mutableFloatStateOf(1.0f) }
+                        TextButton(onClick = {
+                            playbackSpeed = when (playbackSpeed) {
+                                1.0f -> 1.5f
+                                1.5f -> 2.0f
+                                2.0f -> 0.5f
+                                else -> 1.0f
+                            }
+                            audioPlayerManager.setPlaybackSpeed(playbackSpeed)
+                        }) {
+                            Text(text = "${playbackSpeed}x", color = Color.White.copy(alpha = 0.7f), fontSize = 15.sp, fontWeight = FontWeight.Bold)
                         }
                         IconButton(onClick = { audioPlayerManager.seekTo(0) }) {
                             Icon(Icons.Default.SkipPrevious, contentDescription = "Previous/Restart", tint = Color.White, modifier = Modifier.size(34.dp))
@@ -603,7 +1105,6 @@ fun PlayerScreen(
                     Spacer(modifier = Modifier.height(20.dp))
 
                     // Volume Control
-                    val volume by audioPlayerManager.volume.collectAsState()
                     Row(
                         modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
                         verticalAlignment = Alignment.CenterVertically
@@ -795,6 +1296,119 @@ fun PlayerScreen(
 
                     Spacer(modifier = Modifier.height(16.dp))
 
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        StatBox(label = "AUDITIONS", value = "${sound.plays_count}", modifier = Modifier.weight(1f))
+                        StatBox(label = "LIKES", value = "$likesCount", modifier = Modifier.weight(1f))
+                        StatBox(label = "REMIX", value = "12", modifier = Modifier.weight(1f))
+                        
+                        // Animated Shiny Comment Button (TikTok Style)
+                        val infiniteTransition = rememberInfiniteTransition(label = "shiny")
+                        val shinyAlpha by infiniteTransition.animateFloat(
+                            initialValue = 0.4f,
+                            targetValue = 1f,
+                            animationSpec = infiniteRepeatable(
+                                animation = tween(1500, easing = LinearEasing),
+                                repeatMode = RepeatMode.Reverse
+                            ),
+                            label = "shiny"
+                        )
+                        
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(56.dp)
+                                .clip(RoundedCornerShape(16.dp))
+                                .background(Color(0x0CFFFFFF))
+                                .border(1.dp, Color(0xFF00FFCC).copy(alpha = shinyAlpha), RoundedCornerShape(16.dp))
+                                .clickable { showComments = true },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Icon(
+                                    imageVector = Icons.Default.Comment,
+                                    contentDescription = "Comm",
+                                    tint = Color(0xFF00FFCC).copy(alpha = shinyAlpha),
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Text(
+                                    text = "$commentsCount",
+                                    fontSize = 11.sp,
+                                    color = Color.White,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+                    }
+
+                    // Display Short Preview Info if available
+                    soundShortInfo?.let { short ->
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 16.dp, horizontal = 4.dp)
+                                .clip(RoundedCornerShape(16.dp))
+                                .background(Color(0xFF00FFCC).copy(alpha = 0.05f))
+                                .border(1.dp, Color(0xFF00FFCC).copy(alpha = 0.2f), RoundedCornerShape(16.dp))
+                                .padding(16.dp)
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    imageVector = Icons.Default.Sync,
+                                    contentDescription = null,
+                                    tint = Color(0xFF00FFCC),
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = "S-3 SHORT PREVIEW",
+                                    color = Color(0xFF00FFCC),
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    letterSpacing = 1.sp
+                                )
+                            }
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(
+                                text = short.name,
+                                color = Color.White,
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                            if (!short.mini_description.isNullOrBlank()) {
+                                Text(
+                                    text = short.mini_description,
+                                    color = Color.LightGray,
+                                    fontSize = 12.sp,
+                                    modifier = Modifier.padding(top = 4.dp)
+                                )
+                            }
+                            Spacer(modifier = Modifier.height(12.dp))
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    text = short.tags ?: "#StripSound #Music",
+                                    color = Color(0xFF06B6D4),
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Medium
+                                )
+                                Spacer(modifier = Modifier.weight(1f))
+                                if (short.creator_is_verified) {
+                                    Icon(
+                                        imageVector = Icons.Default.Verified,
+                                        contentDescription = "Verified",
+                                        tint = Color(0xFF00FFCC),
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
                     // Creator profile information непосредственно beneath the audio interface
                     Row(
                         modifier = Modifier
@@ -953,12 +1567,40 @@ fun PlayerScreen(
     if (showComments) {
         ModalBottomSheet(
             onDismissRequest = { showComments = false },
-            containerColor = MaterialTheme.colorScheme.surface,
-            modifier = Modifier.fillMaxHeight(0.7f)
+            containerColor = Color(0xFF0F172A),
+            tonalElevation = 8.dp,
+            modifier = Modifier.fillMaxHeight(0.8f),
+            dragHandle = {
+                Box(
+                    modifier = Modifier
+                        .padding(vertical = 12.dp)
+                        .size(40.dp, 4.dp)
+                        .clip(CircleShape)
+                        .background(Color.White.copy(alpha = 0.2f))
+                )
+            }
         ) {
             Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
-                Text("Comments", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                Spacer(modifier = Modifier.height(16.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = "COMMUNAUTÉ", 
+                        style = MaterialTheme.typography.titleMedium, 
+                        fontWeight = FontWeight.ExtraBold,
+                        color = Color.White,
+                        letterSpacing = 2.sp
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Box(
+                        modifier = Modifier
+                            .clip(CircleShape)
+                            .background(Color(0xFF00FFCC))
+                            .padding(horizontal = 8.dp, vertical = 2.dp)
+                    ) {
+                        Text("$commentsCount", color = Color.Black, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+                
+                Spacer(modifier = Modifier.height(24.dp))
                 if (isCommentsLoading) {
                     Box(modifier = Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
                         CircularProgressIndicator()
@@ -1005,6 +1647,14 @@ fun PlayerScreen(
                                         commentsList = commentsList + c
                                         newCommentText = ""
                                         
+                                        // Refresh comment count
+                                        try {
+                                            val commentsResp = com.example.data.remote.NetworkModule.api.getSoundCommentsCount(sound.id)
+                                            commentsCount = commentsResp.total_comments
+                                        } catch (e: Exception) {
+                                            e.printStackTrace()
+                                        }
+                                        
                                         // Trigger notification for commenting
                                         com.example.util.CustomNotificationManager(context)
                                             .notifyNewComment("Vous", commentTxt, sound.title)
@@ -1035,29 +1685,27 @@ fun PlayerScreen(
 
 @Composable
 fun StatBox(label: String, value: String, modifier: Modifier = Modifier) {
-    Box(
+    Column(
         modifier = modifier
-            .background(Color(0x0CFFFFFF), RoundedCornerShape(16.dp))
-            .border(1.dp, Color(0x0FFFFFFF), RoundedCornerShape(16.dp))
-            .padding(vertical = 10.dp, horizontal = 4.dp),
-        contentAlignment = Alignment.Center
+            .background(Color(0xFF1E293B).copy(alpha = 0.3f), RoundedCornerShape(14.dp))
+            .border(1.dp, Color.White.copy(alpha = 0.05f), RoundedCornerShape(14.dp))
+            .padding(vertical = 12.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(
-                text = label, 
-                fontSize = 9.sp, 
-                color = Color(0xFF06B6D4), 
-                fontWeight = FontWeight.ExtraBold,
-                letterSpacing = 1.sp
-            )
-            Spacer(modifier = Modifier.height(2.dp))
-            Text(
-                text = value, 
-                fontSize = 13.sp, 
-                color = Color.White, 
-                fontWeight = FontWeight.Black
-            )
-        }
+        Text(
+            text = label,
+            color = Color.White.copy(alpha = 0.4f),
+            fontSize = 9.sp,
+            fontWeight = FontWeight.Black,
+            letterSpacing = 0.8.sp
+        )
+        Spacer(modifier = Modifier.height(6.dp))
+        Text(
+            text = value,
+            color = Color.White,
+            fontSize = 14.sp,
+            fontWeight = FontWeight.Black
+        )
     }
 }
 
@@ -1218,6 +1866,7 @@ fun AuthorMiniProfile(
 @Composable
 fun WaveformVisualizer(
     soundId: String,
+    isPlaying: Boolean,
     currentPosition: Long,
     duration: Long,
     onSeek: (Long) -> Unit,
@@ -1228,6 +1877,17 @@ fun WaveformVisualizer(
         val random = java.util.Random(seed)
         List(60) { 0.15f + 0.85f * random.nextFloat() }
     }
+
+    val infiniteTransition = rememberInfiniteTransition(label = "waveform_ripple")
+    val waveOffset by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 2f * Math.PI.toFloat(),
+        animationSpec = infiniteRepeatable(
+            animation = tween(1200, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "offset"
+    )
 
     var width by remember { mutableIntStateOf(1) }
 
@@ -1255,7 +1915,15 @@ fun WaveformVisualizer(
             val activeBarsCount = (barCount * progressFract).toInt()
 
             for (i in 0 until barCount) {
-                val baseHeight = heights[i] * canvasHeight
+                var baseHeight = heights[i] * canvasHeight
+                
+                // If song is playing, apply a gentle rhythm ripple to the playing wave progress
+                if (isPlaying && i <= activeBarsCount) {
+                    val angle = waveOffset + (i * 0.25f)
+                    val ripple = kotlin.math.sin(angle) * 0.18f
+                    baseHeight = (baseHeight * (1f + ripple)).coerceIn(4.dp.toPx(), canvasHeight)
+                }
+                
                 val left = i * (barWidth + barSpacing)
                 val top = (canvasHeight - baseHeight) / 2f
                 val barSize = androidx.compose.ui.geometry.Size(barWidth, baseHeight)
@@ -1282,17 +1950,35 @@ fun WaveformVisualizer(
 }
 
 @Composable
+fun SoundMetricBar(label: String, value: Float, color: Color) {
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            Text(label, color = Color.White.copy(alpha = 0.7f), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+            Text("${(value * 100).toInt()}%", color = color, fontSize = 10.sp, fontWeight = FontWeight.Black)
+        }
+        LinearProgressIndicator(
+            progress = { value },
+            modifier = Modifier.fillMaxWidth().height(4.dp).clip(CircleShape),
+            color = color,
+            trackColor = Color.White.copy(alpha = 0.05f)
+        )
+    }
+}
+@Composable
 fun UserProfile(
     userId: String,
     onNavigateToProfile: (String) -> Unit
 ) {
     var profile by remember { mutableStateOf<com.example.domain.model.UserResponse?>(null) }
     var isLoading by remember { mutableStateOf(true) }
+    var isFollowing by remember { mutableStateOf(false) }
+    val coroutineScope = rememberCoroutineScope()
 
     LaunchedEffect(userId) {
         if (userId.isNotBlank()) {
             try {
                 profile = com.example.data.remote.NetworkModule.api.getUserProfile(userId)
+                isFollowing = profile?.is_following ?: false
             } catch (e: Exception) {
                 e.printStackTrace()
             } finally {
@@ -1302,66 +1988,307 @@ fun UserProfile(
     }
 
     if (!isLoading && profile != null) {
-        Column(
+        Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(vertical = 12.dp)
-                .clip(RoundedCornerShape(16.dp))
-                .background(Color(0x0CFFFFFF))
-                .border(1.dp, Color(0x3B06B6D4), RoundedCornerShape(16.dp))
+                .clip(RoundedCornerShape(20.dp))
+                .background(Color(0xFF1E293B).copy(alpha = 0.5f))
+                .border(1.dp, Color(0xFF00FFCC).copy(alpha = 0.2f), RoundedCornerShape(20.dp))
                 .clickable { onNavigateToProfile(userId) }
-                .padding(16.dp)
+                .padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(contentAlignment = Alignment.BottomEnd) {
                 coil.compose.AsyncImage(
                     model = profile?.avatar_url ?: "https://api.dicebear.com/7.x/avataaars/png?seed=${profile?.username}",
                     contentDescription = "Avatar",
                     modifier = Modifier
-                        .size(50.dp)
+                        .size(54.dp)
                         .clip(CircleShape)
                         .background(Color(0x16FFFFFF), CircleShape)
-                        .border(1.5.dp, Color(0x1AFFFFFF), CircleShape),
+                        .border(1.5.dp, Color(0xFF00FFCC), CircleShape),
                     contentScale = androidx.compose.ui.layout.ContentScale.Crop
                 )
-                Spacer(modifier = Modifier.width(14.dp))
-                Column(modifier = Modifier.weight(1f)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            text = profile?.username ?: "Artiste",
-                            color = Color.White,
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Black
-                        )
-                        if (profile?.is_verified == true) {
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Icon(
-                                imageVector = Icons.Default.Verified,
-                                contentDescription = "Verified Profile",
-                                tint = Color(0xFF06B6D4),
-                                modifier = Modifier.size(16.dp)
-                            )
-                        }
-                    }
-                    Text(
-                        text = "${profile?.followers_count ?: 0} followers • ${profile?.total_sounds ?: 0} sons",
-                        color = Color.White.copy(alpha = 0.5f),
-                        style = MaterialTheme.typography.bodySmall,
-                        fontWeight = FontWeight.Medium
+                if (profile?.is_verified == true) {
+                    Icon(
+                        Icons.Default.Verified,
+                        contentDescription = null,
+                        tint = Color(0xFF00FFCC),
+                        modifier = Modifier.size(16.dp).background(Color.Black, CircleShape)
                     )
                 }
             }
-            if (!profile?.bio.isNullOrBlank()) {
-                Spacer(modifier = Modifier.height(10.dp))
+            
+            Spacer(modifier = Modifier.width(14.dp))
+            
+            Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = profile!!.bio!!,
-                    color = Color.LightGray.copy(alpha = 0.8f),
-                    style = MaterialTheme.typography.bodySmall,
-                    maxLines = 2,
-                    modifier = Modifier.padding(top = 2.dp)
+                    text = profile?.username ?: "Artiste",
+                    color = Color.White,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Black
                 )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = "${profile?.followers_count ?: 0} followers",
+                        color = Color.Gray,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Box(modifier = Modifier.size(2.dp).clip(CircleShape).background(Color.Gray))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = "${profile?.total_audio_plays ?: 0} auditions",
+                        color = Color.Gray,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+
+            Button(
+                onClick = {
+                    coroutineScope.launch {
+                        try {
+                            if (isFollowing) {
+                                com.example.data.remote.NetworkModule.api.unfollowUser(userId)
+                                isFollowing = false
+                            } else {
+                                com.example.data.remote.NetworkModule.api.followUser(userId)
+                                isFollowing = true
+                            }
+                        } catch (e: Exception) {
+                            e.printStackTrace()
+                        }
+                    }
+                },
+                modifier = Modifier.height(36.dp),
+                shape = RoundedCornerShape(18.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = if (isFollowing) Color.Transparent else Color(0xFF00FFCC),
+                    contentColor = if (isFollowing) Color.White else Color.Black
+                ),
+                border = if (isFollowing) BorderStroke(1.dp, Color.Gray) else null,
+                contentPadding = PaddingValues(horizontal = 16.dp)
+            ) {
+                Text(
+                    if (isFollowing) "SUIVI" else "SUIVRE",
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Black
+                )
+            }
+        }
+    } else if (isLoading) {
+        // Shimmer or placeholder
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 12.dp)
+                .height(86.dp)
+                .clip(RoundedCornerShape(20.dp))
+                .background(Color(0xFF1E293B).copy(alpha = 0.2f))
+                .padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(modifier = Modifier.size(54.dp).clip(CircleShape).background(Color.DarkGray.copy(alpha = 0.3f)))
+            Spacer(modifier = Modifier.width(14.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Box(modifier = Modifier.width(100.dp).height(16.dp).background(Color.DarkGray.copy(alpha = 0.3f)))
+                Spacer(modifier = Modifier.height(8.dp))
+                Box(modifier = Modifier.width(150.dp).height(12.dp).background(Color.DarkGray.copy(alpha = 0.3f)))
             }
         }
     }
 }
+
+data class TechnicalMetadata(
+    val bpm: String,
+    val key: String,
+    val info: String,
+    val format: String,
+    val sampleRate: String,
+    val bitrate: String,
+    val rating: String,
+    val channels: String
+)
+
+fun getSoundTechnicalMetadata(soundId: String): TechnicalMetadata {
+    val hash = kotlin.math.abs(soundId.hashCode())
+    val bpmVal = 100 + (hash % 45) // 100 - 144 bpm
+    val keys = listOf("G#m", "C#m", "Am", "F#m", "E♭m", "F Major", "B Minor", "D Major", "A♭ Major", "E Major")
+    val keyVal = keys[hash % keys.size]
+    val basses = listOf("Ultra-Deep", "Punchy Mid", "Warm Sub", "Clean Crisp", "Heavy Sub")
+    val bassVal = basses[hash % basses.size]
+    val formats = listOf("FLAC", "WAV", "ALAC", "AAC", "MP3", "AIFF")
+    val formatVal = formats[hash % formats.size]
+    
+    val sampleRates = listOf("96.0 kHz", "192.0 kHz", "48.0 kHz", "44.1 kHz")
+    val sampleRateVal = sampleRates[hash % sampleRates.size]
+    
+    val bitrates = listOf("24-bit Studio", "32-bit Float", "16-bit Lossless", "320 kbps HQ", "24-bit HD")
+    val bitrateVal = bitrates[hash % bitrates.size]
+    
+    val ratings = listOf("Master Quality", "Audiophile Grade", "Hi-Res Audio", "Studio Reference")
+    val ratingVal = ratings[hash % ratings.size]
+    
+    val channelsVal = if (hash % 3 == 0) "Dolby Atmos" else "Stereo 2.0"
+    
+    return TechnicalMetadata(
+        bpm = "$bpmVal",
+        key = keyVal,
+        info = bassVal,
+        format = formatVal,
+        sampleRate = sampleRateVal,
+        bitrate = bitrateVal,
+        rating = ratingVal,
+        channels = channelsVal
+    )
+}
+
+@Composable
+fun SpecPill(label: String, value: String, modifier: Modifier = Modifier) {
+    Column(
+        modifier = modifier
+            .background(Color.White.copy(alpha = 0.03f), RoundedCornerShape(12.dp))
+            .border(1.dp, Color.White.copy(alpha = 0.05f), RoundedCornerShape(12.dp))
+            .padding(12.dp)
+    ) {
+        Text(
+            text = label.uppercase(),
+            color = Color(0xFF00FFCC).copy(alpha = 0.5f),
+            fontSize = 9.sp,
+            fontWeight = FontWeight.Black,
+            letterSpacing = 1.sp
+        )
+        Spacer(modifier = Modifier.height(6.dp))
+        Text(
+            text = value,
+            color = Color.White,
+            fontSize = 15.sp,
+            fontWeight = FontWeight.Black
+        )
+    }
+}
+
+@Composable
+fun AddToPlaylistDialog(
+    sound: com.example.domain.model.Sound,
+    appDatabase: com.example.data.local.AppDatabase,
+    onDismiss: () -> Unit
+) {
+    val coroutineScope = rememberCoroutineScope()
+    var isSaving by remember { mutableStateOf(false) }
+    
+    androidx.compose.ui.window.Dialog(onDismissRequest = onDismiss) {
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp)
+                .border(
+                    width = 1.5.dp,
+                    color = Color(0xFF00FFCC).copy(alpha = 0.5f),
+                    shape = RoundedCornerShape(24.dp)
+                ),
+            colors = CardDefaults.cardColors(
+                containerColor = Color(0xFF0B0B0C)
+            ),
+            shape = RoundedCornerShape(24.dp)
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(24.dp),
+                horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Add,
+                    contentDescription = null,
+                    tint = Color(0xFF00FFCC),
+                    modifier = Modifier.size(48.dp)
+                )
+                
+                Spacer(modifier = Modifier.height(16.dp))
+                
+                Text(
+                    text = "Ajouter à ma playlist local",
+                    color = Color.White,
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold
+                )
+                
+                Spacer(modifier = Modifier.height(8.dp))
+                
+                Text(
+                    text = "Enregistrer '${sound.title}' pour y accéder rapidement hors connexion.",
+                    color = Color.Gray,
+                    fontSize = 13.sp,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                )
+                
+                Spacer(modifier = Modifier.height(24.dp))
+                
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    OutlinedButton(
+                        onClick = onDismiss,
+                        modifier = Modifier.weight(1f),
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            contentColor = Color.White
+                        ),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, Color.Gray)
+                    ) {
+                        Text("Annuler")
+                    }
+                    
+                    Button(
+                        onClick = {
+                            isSaving = true
+                            coroutineScope.launch {
+                                try {
+                                    val entity = com.example.data.local.DownloadedSoundEntity(
+                                        id = sound.id,
+                                        title = sound.title,
+                                        category = sound.category,
+                                        coverUrl = sound.cover_url ?: "",
+                                        authorName = sound.username ?: "Unknown",
+                                        localFilePath = ""
+                                    )
+                                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                                        appDatabase.soundDao().insert(entity)
+                                    }
+                                } catch (e: Exception) {
+                                    e.printStackTrace()
+                                } finally {
+                                    isSaving = false
+                                    onDismiss()
+                                }
+                            }
+                        },
+                        modifier = Modifier.weight(1f),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Color(0xFF00FFCC),
+                            contentColor = Color.Black
+                        )
+                    ) {
+                        if (isSaving) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(16.dp),
+                                color = Color.Black,
+                                strokeWidth = 2.dp
+                            )
+                        } else {
+                            Text("Enregistrer")
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 
 

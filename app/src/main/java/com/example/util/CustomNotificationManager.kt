@@ -36,7 +36,7 @@ class CustomNotificationManager(private val context: Context) {
 
     fun showReportNotification(username: String) {
         val builder = NotificationCompat.Builder(context, REPORT_CHANNEL_ID)
-            .setSmallIcon(android.R.drawable.ic_dialog_alert)
+            .setSmallIcon(context.applicationInfo.icon)
             .setContentTitle("Signalement pris en compte")
             .setContentText("L'utilisateur $username a été signalé à l'équipe de modération.")
             .setPriority(NotificationCompat.PRIORITY_HIGH)
@@ -58,7 +58,7 @@ class CustomNotificationManager(private val context: Context) {
         }
         
         val builder = NotificationCompat.Builder(context, ACTIVITY_CHANNEL_ID)
-            .setSmallIcon(android.R.drawable.ic_popup_reminder)
+            .setSmallIcon(context.applicationInfo.icon)
             .apply {
                 if (largeIconBitmap != null) {
                     setLargeIcon(largeIconBitmap)

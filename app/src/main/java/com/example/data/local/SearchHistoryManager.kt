@@ -1,35 +1,49 @@
 package com.example.data.local
 
 import android.content.Context
-import android.content.SharedPreferences
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
 class SearchHistoryManager(context: Context) {
-    private val prefs: SharedPreferences = context.getSharedPreferences("search_history", Context.MODE_PRIVATE)
-    private val _history = MutableStateFlow<List<String>>(loadHistory())
+    private val prefs = context.getSharedPreferences("search_prefs", Context.MODE_PRIVATE)
+
+    private val _history = MutableStateFlow<List<String>>(emptyList())
     val history: StateFlow<List<String>> = _history.asStateFlow()
 
-    private fun loadHistory(): List<String> {
-        val historyString = prefs.getString("history", "") ?: ""
-        return if (historyString.isEmpty()) emptyList() else historyString.split(",,")
+    init {
+        loadHistory()
+    }
+
+    private fun loadHistory() {
+        val raw = prefs.getString("queries", "") ?: ""
+        if (raw.isBlank()) {
+            _history.value = emptyList()
+        } else {
+            _history.value = raw.split("|||").filter { it.isNotBlank() }
+        }
     }
 
     fun addSearchQuery(query: String) {
         if (query.isBlank()) return
-        val current = loadHistory().toMutableList()
-        current.remove(query) // Remove if exists to move to top
+        val current = _history.value.toMutableList()
+        current.remove(query)
         current.add(0, query)
-        if (current.size > 15) {
-            current.removeAt(current.size - 1)
-        }
-        prefs.edit().putString("history", current.joinToString(",,")).apply()
+        // Keep last 15 queries
+        val updated = current.take(15)
+        _history.value = updated
+        prefs.edit().putString("queries", updated.joinToString("|||")).apply()
+    }
+
+    fun deleteSearchQuery(query: String) {
+        val current = _history.value.toMutableList()
+        current.remove(query)
         _history.value = current
+        prefs.edit().putString("queries", current.joinToString("|||")).apply()
     }
 
     fun clearHistory() {
-        prefs.edit().remove("history").apply()
+        prefs.edit().remove("queries").apply()
         _history.value = emptyList()
     }
 }
